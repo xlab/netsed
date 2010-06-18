@@ -1,0 +1,181 @@
+
+  netsed 0.01b                          (C) Michal Zalewski <lcamtuf@ids.pl>
+  --------------------------------------------------------------------------
+
+  "When things go well, expect something to explode, erode, collapse or
+  just disappear."  -- anonymous
+
+NetSED is small and handful utility designed to alter the contents of
+packets forwarded thru your network in real time. It is really useful
+for network hackers in following applications:
+
+  * black-box protocol auditing - whenever there are two or more
+    propertiary boxes communicating over undocumented protocol (by enforcing 
+    changes in ongoing transmissions, you will be able to test if tested 
+    application is secure),
+
+  * fuzz-alike experiments, integrity tests - whenever you want to test 
+    stability of the application and see how it ensures data integrity,
+
+  * other common applications - fooling other people, content filtering,
+    etc etc - choose whatever you want to.
+
+It perfectly fits netgrep, netcat and tcpdump tools suite :P
+
+It has been designed because I was suspicious about Lotus Domino carrying
+mailbox path in every packet after authorization. Having no Lotus Domino
+client software under Linux, I needed something to install on my bridging
+firewall to modify this mailbox path and try to read someone's else
+mailbox. Guess what happened?:P
+
+This is release 0.01b, which isn't really effective or stable, and I
+wouldn't suggest you putting it nowhere in your production systems ;)
+But - well - any suggestions, fixes, comments and ideas are welcome. For
+now, only TCP and UDP user-space filtering is possible - no support for
+kernel firewalling / routing, raw packets, ICMP and other things.
+
+I bet it won't compile on platforms other than Linux, as I haven't tested
+it, but it shouldn't be too difficult to run it on *BSD, IRIX, Solaris
+etc.
+
+  Setting up netsed - theory
+  --------------------------
+
+There are two possible ways of using netsed. Basic configuration looks this
+way:
+
+  ( client software ) --->------+
+                                |
+                          < local port >
+                                |
+                         [ netsed engine ]
+                                |
+                                +-------------> ( remote server )
+
+In this solution, client software has to connect specified port on specified
+machine - which is not always possible, and not always expected. So,
+there is a second way - which is completely system-dependent. It is called
+transparent proxy.
+
+NetSED supports kernel-level transparent proxy. This means you can set up
+your gateway machine (firewall, router, ethernet bridge) to transparently
+redirect all traffic coming from client software to remote server without
+touching anything outside this box. On Linux, you can set up transparent
+proxying in pretty easy way:
+
+ipfwadm -I -i accept -S source_ip -D destination_ip port -P protocol -r lport
+
+For example, if you want to redirect all traffic coming from host 
+1.2.3.4 to network 5.6.0.0/16 with destination port 12345/tcp, and you
+have netsed working on port 10101 on your local machine, you should do
+something like:
+
+ipfwadm -I -i accept -S 1.2.3.4 -D 5.6.0.0/16 12345 -P tcp -r 10101
+
+By setting up netsed properly, content will be transparenly modified and
+forwarded to the destination:
+
+                                 NetSED
+                              ______|______
+  ( client software ) --->---| - - -+- - - |--------> ( server host )
+                             | transparent |
+                             |    proxy    |
+                             |_____________|
+
+For more instructions on rules syntax and transparent proxies in general,
+refer your OS documentation.
+
+  Setting up netsed - practice
+  ----------------------------
+
+Ok, here we are. First of all, you should know how to set up the first
+configuration I've been talking about - static, user-space forwarder.
+NetSED accepts following parameters:
+
+   netsed proto lport rhost rport rule1 [ rule2 ... ]
+
+First parameter, 'proto', means, obviously, the protocol. You might choose
+'tcp' or 'udp'. Then, you have to specify 'lport' - local listening port.
+Next argument, 'rhost', is the remote server address where the connection
+should be forwarded. ONLY IP ADDRESSES ARE SUPPORTED BY NOW. Then, we
+have 'rport' - remote port number, and up to 50 filtering rules.
+
+General replacement rules syntax is: 
+
+   s/pat1/pat2[/expire]
+
+This will replace all occurences of pat1 with pat2 in matching packets.
+Additional parameter (count) can be used to expire rule after 'count'
+succesful substitutions. Eight-bit characters, including NULL and '/', can
+be passed using HTTP-alike hex escape sequences (eg. %0a%0d). Single '%'
+can be reached by using '%%'. Examples:
+
+  's/anrew/mike/1'   - replace 'andrew' with 'mike' (once)
+  's/anrew/mike'     - replace all occurences of 'andrew' with 'mike'
+  's/anrew/mike%00'  - replace 'andrew' with 'mike\x00' (to keep orig. size)
+  's/%%/%2f/20'      - replace '%' with '/' in first 20 packets
+
+Rules are not working on cross-packet boundaries and are evaluated from
+first to last not expired rule.
+
+Per-rule TTLs (time-to-live) are useful if you want to modify eg. only
+the first packet, letting other packets unmodified, or to dynamically
+change NetSED functionality. This rule, for example, will change 'Henry'
+to 'William' in the first packet, and to 'Mariah' in all other packets:
+
+      s/Henry/William/1 s/Henry/Mariah
+
+So, let's try our first command-line example:
+
+  ./netsed tcp 10101 127.0.0.1 25 s/ehlo/badcommand/1
+
+This should be obvious - connection to local port 10101 will be forwarded
+to local smtp service. Take a look:
+
+$ telnet localhost 10101
+220 squirrel.tpi.pl ESMTP Sendmail 8.9.3/8.9.3; Fri, 5 Jan 2001 00:15:18 +0100
+ehlo
+500 Command unrecognized: "badcommand"
+ehlo
+501 ehlo requires domain address
+
+Apparently, it worked :) Try playing a little with different patterns,
+multiple rules etc. Generally, NetSED works by incremental comparsion
+of the rules, and then skipping already replaced data. For example:
+
+    Rules: s/degener/devi/
+           s/generation/%20and%20sausages/
+           s/sausages/chicken/
+
+    Input data: 'degenerationgeneration'
+
+    Init: degenerationgeneration
+          ^ (replace pointer)
+
+    Pass 1: deviationgeneration       [degener -> devi]
+                ^ (replace pointer)
+
+    Pass 2: deviation and sausages    [generation -> and sausages]
+                                  ^
+    No futher replacements made - end of input data (so, 'sausages'
+    won't be replaced with 'chicken').
+
+Now, I suppose you'd like to know how to setup good-working transparent
+configuration. Well - nothing easier :) The configuration described above
+should work just fine - set up transparent packet redirection to port
+10101 in traffic from one remote host to another and watch the results...
+
+Uhm, right. There's one thing. You might want to divert traffic from
+one host to whole network - but you do not know how to configure netcat
+to preserver original destination addresses? So, for example, connecting
+to 5.6.7.1 and to 5.6.7.2 from 1.2.3.4 (example mentioned above) will
+establish working session to existing targets? Nothing easier. Just
+set rhost and/or rport parameters to '0' while invoking NetSED to preserve
+original destination host and port settings while forwarding the connection
+via proxy :)
+
+WARNING: nothing will stop you before setting up forwarding loops - you
+can eg. forward connections to port 100 to port 1000 using netsed, and then,
+using kernel-space transparent proxy, forward connections to local port 1000
+back to port 100. This might lead to ugly DoS attack if you do not have
+per-user resource limits set. Sorry. Not a Microsoft product.
