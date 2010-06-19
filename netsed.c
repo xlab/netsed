@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
@@ -65,6 +66,28 @@ void usage_hints(const char* why) {
   exit(1);
 }
 
+in_port_t get_port(struct sockaddr *sa) {
+  switch (sa->sa_family) {
+    case AF_INET:
+      return ntohs(((struct sockaddr_in *) sa)->sin_port);
+    case AF_INET6:
+      return ntohs(((struct sockaddr_in6 *) sa)->sin6_port);
+    default:
+      return 0;
+  }
+} /* get_port(struct sockaddr *) */
+
+void set_port(struct sockaddr *sa, in_port_t port) {
+  switch (sa->sa_family) {
+    case AF_INET:
+      ((struct sockaddr_in *) sa)->sin_port = htons(port);
+      break;
+    case AF_INET6:
+      ((struct sockaddr_in6 *) sa)->sin6_port = htons(port);
+    default:
+      break;
+  }
+} /* set_port(struct sockaddr *, in_port_t) */
 
 void error(const char* reason) {
   ERR("[-] Error: %s\n",reason);
@@ -142,19 +165,42 @@ void shrink_to_binary(struct rule_s* r) {
 }
 
 
-void bind_and_listen(int tcp,int port) {
-  int on=1;
-  struct sockaddr_in laddr;
-  lsock=socket(PF_INET,tcp ? SOCK_STREAM:SOCK_DGRAM,0);
-  setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on));
-//  fcntl(lsock,F_SETFL,O_NONBLOCK);
-  laddr.sin_family = PF_INET;
-  laddr.sin_port = htons (port);
-  laddr.sin_addr.s_addr = 0;
-  if (bind(lsock,(struct sockaddr*)&laddr,sizeof(laddr)))
-    error("cannot bind to given port / protocol");
-  if (listen(lsock,16))
-    error("cannot listen on the socket (strange)");
+void bind_and_listen(int af, int tcp, const char *portstr) {
+  int ret;
+  struct addrinfo hints, *res, *reslist;
+
+  memset(&hints, '\0', sizeof(hints));
+  hints.ai_family = af;
+  hints.ai_flags = AI_PASSIVE;
+  hints.ai_socktype = tcp ? SOCK_STREAM : SOCK_DGRAM;
+
+  if ((ret = getaddrinfo(NULL, portstr, &hints, &reslist))) {
+    ERR("getaddrinfo(): %s\n", gai_strerror(ret));
+    error("Impossible to resolve listening port.");
+  }
+  /* We have useful addresses. */
+  for (res = reslist; res; res = res->ai_next) {
+    int one = 1;
+
+    if ( (lsock = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0)
+      continue;
+    setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    //fcntl(lsock,F_SETFL,O_NONBLOCK);
+    if (bind(lsock, res->ai_addr, res->ai_addrlen) < 0) {
+      ERR("bind(): %s", strerror(errno));
+      close(lsock);
+      continue;
+    }
+    if (listen(lsock, 16) < 0) {
+      close(lsock);
+      continue;
+    }
+    /* Successfully bound and now also listening. */
+    break;
+  }
+  freeaddrinfo(reslist);
+  if (res == NULL)
+    error("Listening socket failed.");
 }
 
 char buf[MAX_BUF];
@@ -272,12 +318,16 @@ void sig_chld(int signo)
 } 
 
 int main(int argc,char* argv[]) {
-  int i;
-  int fixedhost=0,fixedport=0;
+  int i, ret;
+  in_port_t fixedport = 0;
+  struct sockaddr_storage fixedhost;
+  struct addrinfo hints, *res, *reslist;
+
+  memset(&fixedhost, '\0', sizeof(fixedhost));
   printf("netsed " VERSION " by Michal Zalewski <lcamtuf@ids.pl>\n");
   setbuffer(stdout,NULL,0);
   if (argc<6) usage_hints("not enough parameters");
-  if (strcmp(argv[1],"tcp")*strcmp(argv[1],"udp")) usage_hints("incorrect procotol");
+  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect procotol");
   // parse rules
   for (i=5;i<argc;i++) {
     char *fs=0, *ts=0, *cs=0;
@@ -299,44 +349,86 @@ int main(int argc,char* argv[]) {
     rules++;    
   }
 
-  printf("[+] Loaded %d rules...\n",rules);
-  if (!atoi(argv[2])) error("incorrect local port");
-  bind_and_listen(strcmp(argv[1],"udp"),atoi(argv[2]));
-  printf("[+] Listening on port %d/%s.\n",atoi(argv[2]),argv[1]);
-  fixedport=atoi(argv[4]);
-  fixedhost=inet_addr(argv[3]);
-  if (fixedhost && fixedport) printf("[+] Using fixed forwarding to %s:%s.\n",argv[3],argv[4]);
-    else printf("[+] Using dynamic (transparent proxy) forwarding.\n");
+  printf("[+] Loaded %d rule%s...\n", rules, (rules > 1) ? "s" : "");
+
+  memset(&hints, '\0', sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_flags = AI_CANONNAME;
+  hints.ai_socktype = strncasecmp(argv[1], "udp", 3) ? SOCK_STREAM : SOCK_DGRAM;
+
+  if ((ret = getaddrinfo(argv[3], argv[4], &hints, &reslist))) {
+    ERR("getaddrinfo(): %s\n", gai_strerror(ret));
+    error("Impossible to resolve remote address or port.");
+  }
+  /* We have candidates for remote host. */
+  for (res = reslist; res; res = res->ai_next) {
+    int sd = -1;
+
+    if ( (sd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0)
+      continue;
+    /* Has successfully built a socket for this address family. */
+    /* Record the address structure and the port. */
+    fixedport = get_port(res->ai_addr);
+    memcpy(&fixedhost, res->ai_addr, res->ai_addrlen);
+    close(sd);
+    break;
+  }
+  freeaddrinfo(reslist);
+  if (res == NULL)
+    error("Failed in resolving remote host.");
+
+  if (fixedhost.ss_family && fixedport)
+    printf("[+] Using fixed forwarding to %s,%s.\n",argv[3],argv[4]);
+  else
+    printf("[+] Using dynamic (transparent proxy) forwarding.\n");
+
+  bind_and_listen(fixedhost.ss_family, strncasecmp(argv[1], "udp", 3), argv[2]);
+
+  printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
+
   signal(SIGPIPE,SIG_IGN);
   signal(SIGCHLD,sig_chld);
 
   // Am I bad coder?;>
 
   while (1) {
-    struct sockaddr_in s;
+    struct sockaddr_storage s;
     int x;
-    socklen_t l = sizeof(struct sockaddr_in);
-    int conho,conpo;
+    socklen_t l = sizeof(s);
+    struct sockaddr_storage conho;
+    in_port_t conpo;
+    char ipstr[INET6_ADDRSTRLEN], portstr[12];
 
     usleep(1000); // Do not wanna select ;P
     if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
-      printf("[+] Got incoming connection from %s:%d",inet_ntoa(s.sin_addr),ntohs(s.sin_port));
-      l=sizeof(struct sockaddr_in);
+      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+      printf("[+] Got incoming connection from %s,%s", ipstr, portstr);
+      l = sizeof(s);
       getsockname(csock,(struct sockaddr*)&s,&l);
-      printf(" to %s:%d\n", inet_ntoa(s.sin_addr), ntohs(s.sin_port));
-      conpo=ntohs(s.sin_port);
-      conho=s.sin_addr.s_addr;
+      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+      printf(" to %s,%s\n", ipstr, portstr);
+      conpo = get_port((struct sockaddr *) &s);
+
+      memcpy(&conho, &s, sizeof(conho));
+
       if (fixedport) conpo=fixedport; 
-      if (fixedhost) conho=fixedhost;
-      s.sin_addr.s_addr=conho;
-      printf("[*] Forwarding connection to %s:%d\n", inet_ntoa(s.sin_addr),conpo);
+      if (fixedhost.ss_family)
+        memcpy(&conho, &fixedhost, sizeof(conho));
+
+      memcpy(&s, &conho, sizeof(s));
+      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+      printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
       if (!(x=fork())) {
         int fsock;
         int one=1;
+
         DBG("[+] processing (%d).\n",getpid());
-        s.sin_addr.s_addr=conho;
-        s.sin_port=htons(conpo);
-        fsock=socket(PF_INET,strcmp(argv[1],"udp") ? SOCK_STREAM:SOCK_DGRAM,0);
+        memcpy(&s, &conho, sizeof(s));
+        set_port((struct sockaddr *) &s, conpo);
+        fsock = socket(s.ss_family, strncasecmp(argv[1], "udp", 3) ? SOCK_STREAM : SOCK_DGRAM, 0);
         if (connect(fsock,(struct sockaddr*)&s,l)) {
            printf("[!] Cannot connect to remote server, dropping connection.\n");
            close(fsock);close(csock);
@@ -344,7 +436,8 @@ int main(int argc,char* argv[]) {
         }
         setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
         setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-        while (read_write_sed(fsock,csock));
+        while (read_write_sed(fsock,csock))
+          ;
         printf("[-] Client or server disconnect (%d).\n",getpid());
         close(fsock); close(csock);
         exit(0);
