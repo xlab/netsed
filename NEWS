@@ -2,6 +2,9 @@
   * detecting client/server disconnection (not only on write fail)
   * using select in treatment process to avoid useless cpu load [Debian Bug #586037]
   * resolving rhost address if needed [Debian Bug #397420 ] 
+  * rule replacement was replacing all occurence of any rule, 
+     but will leave 1 char between any rule match, 
+     fixed to replace all occurence of the rules directly.
 
 ????????: netsed 0.01c
   * last available netsed version taken from debian archive.

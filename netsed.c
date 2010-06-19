@@ -162,10 +162,12 @@ int sed_the_buffer(int siz) {
   int newsize=0;
   int changes=0;
   int gotchange=0;
-  for (i=0;i<siz;i++) {
+  for (i=0;i<siz;) {
+    gotchange=0;
     for (j=0;j<rules;j++) {
       if ((!memcmp(&buf[i],rule[j].from,rule[j].fs)) && (rule[j].live!=0)) {
         changes++;
+        gotchange=1;
         printf("    Applying rule s/%s/%s...\n",rule[j].forig,rule[j].torig);
         rule[j].live--;
         if (rule[j].live==0) printf("    (rule just expired)\n");
@@ -178,6 +180,7 @@ int sed_the_buffer(int siz) {
     if (!gotchange) {
       b2[newsize]=buf[i];
       newsize++;
+      i++;
     }
   }
   if (!changes) printf("[*] Forwarding untouched packet of size %d.\n",siz);
