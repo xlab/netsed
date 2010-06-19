@@ -50,18 +50,18 @@ void usage_hints(const char* why) {
   ERR("            address of incoming connection, see README)\n");
   ERR("  rport   - destination port (0 = dst port of incoming connection)\n");
   ERR("  ruleN   - replacement rules (see below)\n\n");
-  ERR("General replacement rules syntax: s/pat1/pat2[/expire]\n\n");
-  ERR("This will replace all occurences of pat1 with pat2 in matching packets.\n");
-  ERR("Additional parameter (count) can be used to expire rule after 'count'\n");
-  ERR("succesful substitutions. Eight-bit characters, including NULL and '/', can\n");
-  ERR("be passed using HTTP-like hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
+  ERR("General syntax of replacement rules: s/pat1/pat2[/expire]\n\n");
+  ERR("This will replace all occurences of pat1 with pat2 in any matching packet.\n");
+  ERR("An additional parameter (count) can be used to expire a rule after 'count'\n");
+  ERR("successful substitutions. Eight-bit characters, including NULL and '/',\n");
+  ERR("can be passed using HTTP-like hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
   ERR("A match on '%%' can be achieved by specifying '%%%%'. Examples:\n\n");
   ERR("  's/andrew/mike/1'  - replace 'andrew' with 'mike' (only first time)\n");
   ERR("  's/andrew/mike'    - replace all occurences of 'andrew' with 'mike'\n");
   ERR("  's/andrew/mike%%00' - replace 'andrew' with 'mike\\x00' (also padding to keep orig. size)\n");
   ERR("  's/%%%%/%%2f/20'      - replace '%%' with '/' in first 20 packets\n\n");
-  ERR("Rules are not working on cross-packet boundaries and are evaluated from\n");
-  ERR("first to last not expired rule.\n");
+  ERR("Rules are not active across packet boundaries, and they are evaluated\n");
+  ERR("from first to last, not yet expired rule, as stated on the command line.\n");
   exit(1);
 }
 
@@ -314,8 +314,10 @@ int main(int argc,char* argv[]) {
 
   while (1) {
     struct sockaddr_in s;
-    int x,l=sizeof(struct sockaddr_in);
+    int x;
+    socklen_t l = sizeof(struct sockaddr_in);
     int conho,conpo;
+
     usleep(1000); // Do not wanna select ;P
     if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
       printf("[+] Got incoming connection from %s:%d",inet_ntoa(s.sin_addr),ntohs(s.sin_port));
