@@ -1,5 +1,13 @@
 
-  netsed 0.01b                          (C) Michal Zalewski <lcamtuf@ids.pl>
+  netsed 0.02a                          (C) Michal Zalewski <lcamtuf@ids.pl>
+                                  Julien VdG <julien@silicone.homelinux.org>
+  --------------------------------------------------------------------------
+
+  This work is based on the original netsed 0.01c by Michal Zalewski.
+  Please contact Julien VdG <julien@silicone.homelinux.org> if you encounter
+  any problems with this version.
+  The changes compared to version 0.01c are related in the NEWS file.
+
   --------------------------------------------------------------------------
 
   "When things go well, expect something to explode, erode, collapse or

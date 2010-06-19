@@ -1,0 +1,6 @@
+20100619: netsed 0.02a
+  * detecting client/server disconnection (not only on write fail)
+  * using select in treatment process to avoid useless cpu load [Debian Bug #586037]
+
+????????: netsed 0.01c
+  * last available netsed version taken from debian archive.

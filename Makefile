@@ -1,4 +1,4 @@
-CFLAGS = -Wall -fomit-frame-pointer -O9
+CFLAGS := -Wall -fomit-frame-pointer -O9
 
 all: netsed
 

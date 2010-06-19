@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -10,13 +11,20 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <netdb.h>
 
-#define VERSION "0.01c"
+#define VERSION "0.02a"
 #define MAXRULES 50
 #define MAX_BUF  100000
 
 #define ERR(x...) fprintf(stderr,x)
 
+#define DEBUG
+#ifdef DEBUG
+#define DBG(x...) printf(x)
+#else
+#define DBG(x...)
+#endif
 
 
 struct rule_s {
@@ -136,7 +144,7 @@ void shrink_to_binary(struct rule_s* r) {
 void bind_and_listen(int tcp,int port) {
   struct sockaddr_in laddr;
   lsock=socket(PF_INET,tcp ? SOCK_STREAM:SOCK_DGRAM,0);
-  fcntl(lsock,F_SETFL,O_NONBLOCK);
+//  fcntl(lsock,F_SETFL,O_NONBLOCK);
   laddr.sin_family = PF_INET;
   laddr.sin_port = htons (port);
   laddr.sin_addr.s_addr = 0;
@@ -181,25 +189,69 @@ int sed_the_buffer(int siz) {
 
 int read_write_sed(int s1,int s2) {
   int rd;
-  fcntl(s1,F_SETFL,O_NONBLOCK);
-  fcntl(s2,F_SETFL,O_NONBLOCK);
-  rd=read(s1,buf,sizeof(buf));
-  if (rd<0 && errno!=EAGAIN) return 0; // s1 not connected
-  if (rd>0) {
-    fcntl(s2,F_SETFL,O_SYNC);
-    printf("[+] Caught server -> client packet.\n");
-    rd=sed_the_buffer(rd);
-    if (write(s2,b2,rd)<=0) return 0; // not able to send
-    fcntl(s2,F_SETFL,O_NONBLOCK);
+
+  int sel;
+  fd_set rd_set;
+  struct timeval timeout;
+  FD_ZERO(&rd_set);
+  FD_SET(s1,&rd_set);
+  FD_SET(s2,&rd_set);
+  timeout.tv_sec = 1;
+  timeout.tv_usec = 0;
+  sel=select((s1<s2)?s2+1:s1+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+  if (sel < 0) {
+    DBG("[!] select fail!\n");
+    return 0; // s1 not connected
   }
-  rd=read(s2,buf,sizeof(buf));
-  if (rd<0 && errno!=EAGAIN) return 0; // s2 not connected
-  if (rd>0) {
-    fcntl(s1,F_SETFL,O_SYNC);
-    printf("[+] Caught client -> server packet.\n");
-    rd=sed_the_buffer(rd);
-    if (write(s1,b2,rd)<=0) return 0; // not able to send
-    fcntl(s1,F_SETFL,O_NONBLOCK);
+    if (sel == 0) {
+//    DBG("[*] select timeout\n");
+    return 1; // select timeout
+  }
+
+  if (FD_ISSET(s1, &rd_set)) {
+    DBG("[*] select server\n");
+    rd=read(s1,buf,sizeof(buf));
+    if ((rd<0) && (errno!=EAGAIN))
+    {
+      DBG("[!] server disconnected. (rd err)\n");
+      return 0; // s1 not connected
+    }
+    if (rd == 0) {
+      // nothing read but select said ok, so EOF
+      DBG("[!] server disconnected. (rd)\n");
+      return 0; // not able to send
+    }
+    if (rd>0) {
+      printf("[+] Caught server -> client packet.\n");
+      rd=sed_the_buffer(rd);
+      if (write(s2,b2,rd)<=0) {
+        DBG("[!] client disconnected. (wr)\n");
+        return 0; // not able to send
+      }
+    }
+  }
+  
+  if (FD_ISSET(s2, &rd_set)) {
+    DBG("[*] select client\n");
+    rd=read(s2,buf,sizeof(buf));
+    if ((rd<0) && (errno!=EAGAIN))
+    {
+      DBG("[!] client disconnected. (rd err)\n");
+      return 0; // s2 not connected
+    }
+    if (rd == 0) {
+      // nothing read but select said ok, so EOF
+      DBG("[!] client disconnected. (rd)\n");
+      return 0; // not able to send
+    }
+    if (rd>0) {
+      printf("[+] Caught client -> server packet.\n");
+      rd=sed_the_buffer(rd);
+      if (write(s1,b2,rd)<=0) {
+        DBG("[!] server disconnected. (wr)\n");
+        return 0; // not able to send
+      }
+    }
   }
   return 1;
 }
@@ -252,7 +304,6 @@ int main(int argc,char* argv[]) {
     int conho,conpo;
     usleep(1000); // Do not wanna select ;P
     if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
-      fcntl(csock,F_SETFL,O_NONBLOCK);
       printf("[+] Got incoming connection from %s:%d",inet_ntoa(s.sin_addr),ntohs(s.sin_port));
       l=sizeof(struct sockaddr_in);
       getsockname(csock,(struct sockaddr*)&s,&l);
@@ -266,6 +317,7 @@ int main(int argc,char* argv[]) {
       if (!(x=fork())) {
         int fsock;
         int one=1;
+        DBG("[+] processing (%d).\n",getpid());
         s.sin_addr.s_addr=conho;
         s.sin_port=htons(conpo);
         fsock=socket(PF_INET,strcmp(argv[1],"udp") ? SOCK_STREAM:SOCK_DGRAM,0);
@@ -285,3 +337,5 @@ int main(int argc,char* argv[]) {
     }
   }
 }
+
+// vim:sw=2:sta:et:
