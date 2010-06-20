@@ -71,6 +71,13 @@ void usage_hints(const char* why) {
   exit(1);
 }
 
+#ifdef __GNUC__
+// avoid gcc from inlining those two function when optimizing, as otherwise
+// the function whould break strict-aliasing rules by dereferencing pointers...
+in_port_t get_port(struct sockaddr *sa) __attribute__ ((noinline));
+void set_port(struct sockaddr *sa, in_port_t port) __attribute__ ((noinline));
+#endif
+
 in_port_t get_port(struct sockaddr *sa) {
   switch (sa->sa_family) {
     case AF_INET:
