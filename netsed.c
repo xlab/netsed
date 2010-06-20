@@ -293,19 +293,7 @@ int main(int argc,char* argv[]) {
   bind_and_listen(strcmp(argv[1],"udp"),atoi(argv[2]));
   printf("[+] Listening on port %d/%s.\n",atoi(argv[2]),argv[1]);
   fixedport=atoi(argv[4]);
-  fixedhost = inet_addr(argv[3]);
-  if (fixedhost == -1) {
-    struct hostent *resolvhost;
-    resolvhost = gethostbyname(argv[3]);
-    if (resolvhost==NULL) error("cannot resolve rhost");
-    DBG("[+] resolved %s : %d.%d.%d.%d\n", argv[3], 
-            (unsigned char)resolvhost->h_addr[0],
-            (unsigned char)resolvhost->h_addr[1],
-            (unsigned char)resolvhost->h_addr[2],
-            (unsigned char)resolvhost->h_addr[3]);
-    fixedhost=*((long*)resolvhost->h_addr); // don't know if this is quite portable, probably not
-  }
-  DBG("[?] inet : %08x\n",fixedhost);
+  fixedhost=inet_addr(argv[3]);
   if (fixedhost && fixedport) printf("[+] Using fixed forwarding to %s:%s.\n",argv[3],argv[4]);
     else printf("[+] Using dynamic (transparent proxy) forwarding.\n");
   signal(SIGPIPE,SIG_IGN);
