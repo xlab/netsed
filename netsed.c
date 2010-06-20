@@ -61,10 +61,11 @@ void usage_hints(const char* why) {
   ERR("successful substitutions. Eight-bit characters, including NULL and '/',\n");
   ERR("can be passed using HTTP-like hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
   ERR("A match on '%%' can be achieved by specifying '%%%%'. Examples:\n\n");
-  ERR("  's/andrew/mike/1'  - replace 'andrew' with 'mike' (only first time)\n");
-  ERR("  's/andrew/mike'    - replace all occurences of 'andrew' with 'mike'\n");
-  ERR("  's/andrew/mike%%00' - replace 'andrew' with 'mike\\x00' (also padding to keep orig. size)\n");
-  ERR("  's/%%%%/%%2f/20'      - replace '%%' with '/' in first 20 packets\n\n");
+  ERR("  's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)\n");
+  ERR("  's/andrew/mike'       - replace all occurences of 'andrew' with 'mike'\n");
+  ERR("  's/andrew/mike%%00%%00' - replace 'andrew' with 'mike\\x00\\x00'\n");
+  ERR("                          (manually padding to keep original size)\n");
+  ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurence of '%%' with '/'\n\n");
   ERR("Rules are not active across packet boundaries, and they are evaluated\n");
   ERR("from first to last, not yet expired rule, as stated on the command line.\n");
   exit(1);
@@ -314,11 +315,11 @@ int read_write_sed(int s1,int s2) {
 
 void sig_chld(int signo)
 {
-    pid_t  pid;
-    int    stat;
-    while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0)
-	printf("child %d terminated\n", pid);
-    return;
+  pid_t  pid;
+  int    stat;
+  while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0)
+    printf("[!] child %d terminated\n", pid);
+  return;
 } 
 
 int main(int argc,char* argv[]) {
