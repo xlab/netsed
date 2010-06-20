@@ -1,3 +1,8 @@
+20100619: netsed 0.02b
+  * imported patches from #397420
+    - IPv6 compatible reimplentation of resolving code
+    - some minor other changes
+
 20100619: netsed 0.02a
   * detecting client/server disconnection (not only on write fail)
   * using select in treatment process to avoid useless cpu load [Debian Bug #586037]

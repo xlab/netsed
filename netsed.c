@@ -1,3 +1,7 @@
+//  This work is based on the original netsed 0.01c by Michal Zalewski.
+//  Please contact Julien VdG <julien@silicone.homelinux.org> if you encounter
+//  any problems with this version.
+//  The changes compared to version 0.01c are related in the NEWS file.
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -15,7 +19,7 @@
 #include <signal.h>
 #include <netdb.h>
 
-#define VERSION "0.02a"
+#define VERSION "0.02b"
 #define MAXRULES 50
 #define MAX_BUF  100000
 
