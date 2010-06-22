@@ -5,18 +5,26 @@ require 'test/unit'
 require 'socket'
 
 class NetsedRun
+  attr_reader :data
+
   def initialize(proto, lport, rhost, rport, *rules)
-    @netsedpid = fork {
-      exec('../netsed', proto, lport.to_s, rhost, rport.to_s, *rules)
-    }
-    sleep 0.01
+    @cmd="../netsed #{proto} #{lport} #{rhost} #{rport} #{rules.join(' ')}"
+    @pipe=IO.popen(@cmd)
+    @data=''
+    @pipe.sync = true
+    # waiting for netsed to listen
+    begin
+      line = @pipe.gets
+      @data << line
+    end until line =~ /^\[\+\] Listening on port/
   end
 
   def kill
-    #print "PID:",netsedpid
-    Process.kill('TERM', @netsedpid)
-    Process.wait(@netsedpid)
-    @netsedpid=nil
+    Process.kill('TERM', @pipe.pid)
+    Process.wait(@pipe.pid)
+    @data << @pipe.read
+    @pipe.close
+    return @data
   end
 end
 
