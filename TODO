@@ -1,0 +1,7 @@
+TODO in no particular order:
+- Find a better bugtracker than this file
+- tests basic features
+- test transparent proxy mode again
+- doc that udp does not work
+- implement udp
+
