@@ -12,6 +12,11 @@ check_version:
 	@grep $(VERSION) NEWS>/dev/null #version should apear in NEWS file
 	@grep $(VERSION) README>/dev/null #same for README
 
+.PHONY: test
+
+test: netsed
+	ruby test/ts_full.rb
+
 release: clean check_version
 	tar cfvz ../netsed-$(VERSION).tar.gz *
 
