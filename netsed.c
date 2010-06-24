@@ -44,6 +44,7 @@ struct rule_s {
 int lsock, csock,rules;
 struct rule_s rule[MAXRULES];
 
+volatile int stop=0;
 
 void usage_hints(const char* why) {
   ERR("Error: %s\n\n",why);
@@ -263,11 +264,15 @@ int read_write_sed(int s1,int s2) {
   timeout.tv_sec = 1;
   timeout.tv_usec = 0;
   sel=select((s1<s2)?s2+1:s1+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+  if (stop)
+  {
+    return 0; // abort requested
+  }
   if (sel < 0) {
-    DBG("[!] select fail!\n");
+    DBG("[!] select fail! %s\n", strerror(errno));
     return 0; // s1 not connected
   }
-    if (sel == 0) {
+  if (sel == 0) {
 //    DBG("[*] select timeout\n");
     return 1; // select timeout
   }
@@ -328,6 +333,12 @@ void sig_chld(int signo)
     printf("[!] child %d terminated\n", pid);
   return;
 } 
+
+void sig_int(int signo)
+{
+  DBG("[!] user interrupt request (%d)\n",getpid());
+  stop = 1;
+}
 
 int main(int argc,char* argv[]) {
   int i, ret;
@@ -399,11 +410,13 @@ int main(int argc,char* argv[]) {
   printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
 
   signal(SIGPIPE,SIG_IGN);
+  // TODO: use sigaction
   signal(SIGCHLD,sig_chld);
+  signal(SIGINT,sig_int);
 
   // Am I bad coder?;>
 
-  while (1) {
+  while (!stop) {
     struct sockaddr_storage s;
     int x;
     socklen_t l = sizeof(s);
@@ -411,7 +424,30 @@ int main(int argc,char* argv[]) {
     in_port_t conpo;
     char ipstr[INET6_ADDRSTRLEN], portstr[12];
 
-    usleep(1000); // Do not wanna select ;P
+    int sel;
+    fd_set rd_set;
+    struct timeval timeout;
+    FD_ZERO(&rd_set);
+    FD_SET(lsock,&rd_set);
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    sel=select(lsock+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+    if (stop)
+    {
+      break;
+    }
+    if (sel < 0) {
+      if (errno == EINTR)
+        continue; // we will get some SIGCHLD
+      DBG("[!] listen select fail! %s\n", strerror(errno));
+      break;
+    }
+    if (sel == 0) {
+//      DBG("[*] listen select timeout\n");
+      continue; // select timeout
+    }
+
     if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
       getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                   portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
@@ -437,6 +473,7 @@ int main(int argc,char* argv[]) {
         int fsock;
         int one=1;
 
+        close(lsock);
         DBG("[+] processing (%d).\n",getpid());
         memcpy(&s, &conho, sizeof(s));
         set_port((struct sockaddr *) &s, conpo);
@@ -450,13 +487,15 @@ int main(int argc,char* argv[]) {
         setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
         while (read_write_sed(fsock,csock))
           ;
-        printf("[-] Client or server disconnect (%d).\n",getpid());
+        if(!stop)
+          printf("[-] Client or server disconnect (%d).\n",getpid());
         close(fsock); close(csock);
         exit(0);
       }
       close(csock);
     }
   }
+  close(lsock);
 }
 
 // vim:sw=2:sta:et:

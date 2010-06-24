@@ -7,4 +7,3 @@
 - implementing all sed scripting is not the plan, but 
   - implement some regex support (most of sed s// command without all the scripting that sed allows). man 3 regex
   - allowing the rule to be processed externally by a filter program (so the real sed can be used). check with popen.
-- catch ^C (SIGINT) and close sockets cleanly (could help tests)
