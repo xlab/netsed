@@ -56,13 +56,13 @@ void usage_hints(const char* why) {
   ERR("  rport   - destination port (0 = dst port of incoming connection)\n");
   ERR("  ruleN   - replacement rules (see below)\n\n");
   ERR("General syntax of replacement rules: s/pat1/pat2[/expire]\n\n");
-  ERR("This will replace all occurences of pat1 with pat2 in any matching packet.\n");
+  ERR("This will replace all occurrences of pat1 with pat2 in any matching packet.\n");
   ERR("An additional parameter (count) can be used to expire a rule after 'count'\n");
   ERR("successful substitutions. Eight-bit characters, including NULL and '/',\n");
   ERR("can be passed using HTTP-like hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
   ERR("A match on '%%' can be achieved by specifying '%%%%'. Examples:\n\n");
   ERR("  's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)\n");
-  ERR("  's/andrew/mike'       - replace all occurences of 'andrew' with 'mike'\n");
+  ERR("  's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'\n");
   ERR("  's/andrew/mike%%00%%00' - replace 'andrew' with 'mike\\x00\\x00'\n");
   ERR("                          (manually padding to keep original size)\n");
   ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurence of '%%' with '/'\n\n");
