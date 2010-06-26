@@ -247,7 +247,7 @@ int sed_the_buffer(int siz) {
   }
   if (!changes) printf("[*] Forwarding untouched packet of size %d.\n",siz);
   else printf("[*] Done %d replacements, forwarding packet of size %d (orig %d).\n",
-              changes,siz,newsize);
+              changes,newsize,siz);
   return newsize;
 }
 
