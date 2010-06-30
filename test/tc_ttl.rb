@@ -30,12 +30,36 @@ class TC_TTLTest < Test::Unit::TestCase
   end
 
 
-  def test_netsed
+  def test_TTL_basic
     TCP_TTL_basic(LH_IPv4, 20000, 20001)
   end
 
-  def test_netsed6
+  def test_TTL_basic6
     TCP_TTL_basic(LH_IPv6, 20000, 20001)
+  end
+
+  def TCP_TTL_20(server, port1, port2)
+    datasent   = '% %% %%% %%%% %%%%% %%%%%% %%%%%%%'
+    dataexpect = '/ // /// //// ///// /////% %%%%%%%'
+    serv = TCPServeSingleDataSender.new(server, port2, datasent)
+
+    netsed = NetsedRun.new('tcp', port1.to_s, server, port2.to_s, 's/%%/%2f/20')
+
+    datarecv = TCPSingleDataRecv(server, port1, 100)
+
+    serv.join
+    netsed.kill
+
+    assert_equal(dataexpect, datarecv)
+  end
+
+
+  def test_TTL_20
+    TCP_TTL_20(LH_IPv4, 20000, 20001)
+  end
+
+  def test_TTL_20_6
+    TCP_TTL_20(LH_IPv6, 20000, 20001)
   end
 
 end
