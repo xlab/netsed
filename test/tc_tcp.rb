@@ -35,6 +35,35 @@ class TC_TCPTest < Test::Unit::TestCase
     assert_equal('', datarecv)
   end
 
+  def test_case_03_ClientSendData
+    datasent   = 'test andrew and andrew'
+    dataexpect = 'test mike and mike'
+
+    serv = TCPServeSingleDataReciever.new(SERVER, RPORT, 100)
+    TCPSingleDataSend(SERVER, LPORT, datasent)
+    datarecv=serv.join
+    assert_equal(dataexpect, datarecv)
+  end
+
+  def test_case_04_Chat
+    datasent = ['client: bla bla andrew', 'server: ok andrew ok']
+    dataexpect = ['client: bla bla mike', 'server: ok mike ok']
+    datarecv = []
+    serv = TCPServeSingleConnection.new(SERVER, RPORT) { |s|
+      @tc4data = s.recv( 100 )
+      s.write(datasent[1])
+    }
+    streamSock = TCPSocket.new(SERVER, LPORT)  
+    streamSock.write( datasent[0] )  
+    datarecv[1] = streamSock.recv( 100 )
+    streamSock.close
+    serv.join
+    datarecv[0] = @tc4data
+
+    assert_equal_objects(dataexpect, datarecv)
+  end
+
+
   # check that netsed is still here for the test_group_all call ;)
   def test_case_zz_LastCheck
     datasent   = 'test andrew and andrew'
