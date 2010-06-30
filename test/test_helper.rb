@@ -35,6 +35,10 @@ class NetsedRun
     @pipe.close
     return @data
   end
+
+  def pid
+    @pipe.pid
+  end
 end
 
 class TCPServeSingleConnection
