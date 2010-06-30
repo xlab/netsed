@@ -496,6 +496,7 @@ int main(int argc,char* argv[]) {
     }
   }
   close(lsock);
+  exit(0);
 }
 
 // vim:sw=2:sta:et:
