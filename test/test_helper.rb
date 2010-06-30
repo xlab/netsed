@@ -7,6 +7,12 @@ require 'socket'
 LH_IPv4 = '127.0.0.1'
 LH_IPv6 = '::1'
 
+
+#default values for all test classes
+LPORT=20000
+RPORT=20001
+SERVER=LH_IPv4
+
 class NetsedRun
   attr_reader :data
 

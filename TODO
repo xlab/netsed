@@ -2,9 +2,7 @@
 - Find a better bugtracker than this file
 - tests:
   - Improve feature coverage
-  - TCP tests should not only send strings from server to client
   - Improve documentation (use rdoc)
-  - find a way to automatically run all test on IPv6 without duplicating them
 - test transparent proxy mode again
 - doc that udp does not work
 - implement udp
