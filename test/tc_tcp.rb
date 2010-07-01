@@ -49,7 +49,7 @@ class TC_TCPTest < Test::Unit::TestCase
     dataexpect = ['client: bla bla mike', 'server: ok mike ok']
     datarecv = []
     serv = TCPServeSingleConnection.new(self.class::SERVER, RPORT) { |s|
-      @tc4data = s.recv( 100 )
+      datarecv[0] = s.recv( 100 )
       s.write(datasent[1])
     }
     streamSock = TCPSocket.new(self.class::SERVER, LPORT)  
@@ -57,7 +57,34 @@ class TC_TCPTest < Test::Unit::TestCase
     datarecv[1] = streamSock.recv( 100 )
     streamSock.close
     serv.join
-    datarecv[0] = @tc4data
+
+    assert_equal_objects(dataexpect, datarecv)
+  end
+
+  def test_case_05_ServeMultiple
+    datasent = ['0: bla bla andrew', '1: ok andrew ok']
+    dataexpect = ['0: bla bla mike', '1: ok mike ok']
+    # open server
+    datarecv=[]
+    serv = TCPServeMultipleConnection.new(self.class::SERVER, RPORT, 2) { |s, j|
+      #puts "Thread #{j} accepted connection"
+      datarecv[j] = s.recv( 100 )
+    }
+
+    # open connection to 2 server simultaneously
+    cs=[]
+    for i in 0..1 do
+      #puts "client #{i}"
+      cs[i] = TCPSocket.new(self.class::SERVER, LPORT)
+      sleep 0.001 # sleep to ensure connection order on server thread
+    end
+    # write to each connections
+    for i in 0..1 do
+      cs[i].write( datasent[i] )
+    end
+    cs.each {|s| s.close}
+
+    serv.join
 
     assert_equal_objects(dataexpect, datarecv)
   end

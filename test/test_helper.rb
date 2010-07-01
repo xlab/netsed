@@ -41,6 +41,28 @@ class NetsedRun
   end
 end
 
+class TCPServeMultipleConnection
+  def initialize(server, port, nconnections, &block)
+    dts = TCPServer.new(server, port)  
+    @th = Thread.start {
+      ths=[]
+      for i in 0..nconnections-1 do
+        sa=dts.accept
+        ths[i] = Thread.start(i, sa) {|j, s|    
+          block.call(s,j)
+          s.close
+        }
+      end
+      ths.each {|tha| tha.join}
+      dts.close
+    }
+  end
+
+  def join
+    @th.join
+  end
+end
+
 class TCPServeSingleConnection
   def initialize(server, port, &block)
     dts = TCPServer.new(server, port)  
