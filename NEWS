@@ -1,3 +1,11 @@
+20100702: netsed 0.02c
+  * added a test suite in test directory
+  * catching ctrl-C and closing sockets
+    - to do that I also used a select for the listening socket, getting rid of
+      the usleep call ;)
+    - this also improve batch tests as it wont wait for some timeout to reuse
+      the socket.
+
 20100619: netsed 0.02b
   * imported patches from #397420
     - IPv6 compatible reimplentation of resolving code

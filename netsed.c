@@ -19,7 +19,7 @@
 #include <signal.h>
 #include <netdb.h>
 
-#define VERSION "0.02b"
+#define VERSION "0.02c"
 #define MAXRULES 50
 #define MAX_BUF  100000
 
