@@ -1,6 +1,7 @@
 #!/usr/bin/ruby
 # helper function for netsed Unit::Tests
 # (c) 2010 Julien Viard de Galbert <julien@silicone.homelinux.org>
+# 
 
 require 'socket'
 
@@ -13,9 +14,11 @@ LPORT=20000
 RPORT=20001
 SERVER=LH_IPv4
 
+# Run a netsed instance with given parameters.
 class NetsedRun
   attr_reader :data
 
+  # Launch netsed with given parameters.
   def initialize(proto, lport, rhost, rport, *rules)
     @cmd="../netsed #{proto} #{lport} #{rhost} #{rport} #{rules.join(' ')}"
     @pipe=IO.popen(@cmd)
@@ -28,6 +31,8 @@ class NetsedRun
     end until line =~ /^\[\+\] Listening on port/
   end
 
+  # Kill (INT) and wait netsed exit
+  # also returns standard output
   def kill
     Process.kill('INT', @pipe.pid)
     Process.wait(@pipe.pid)
@@ -36,20 +41,26 @@ class NetsedRun
     return @data
   end
 
+  # Returns netsed PID
   def pid
     @pipe.pid
   end
 end
 
+# TCP Server that accept multiple connections
 class TCPServeMultipleConnection
-  def initialize(server, port, nconnections, &block)
-    dts = TCPServer.new(server, port)  
+
+  # Creates a thread server on _addr_, _port_
+  # the block is called for every accepted connections (up to _nbconnections_)
+  # once the block exits, the socket is closed.
+  def initialize(addr, port, nbconnections) # :yields: socket, index
+    dts = TCPServer.new(addr, port)  
     @th = Thread.start {
       ths=[]
-      for i in 0..nconnections-1 do
+      for i in 0..nbconnections-1 do
         sa=dts.accept
-        ths[i] = Thread.start(i, sa) {|j, s|    
-          block.call(s,j)
+        ths[i] = Thread.start(i, sa) {|j, s|
+          yield s,j
           s.close
         }
       end
@@ -58,64 +69,83 @@ class TCPServeMultipleConnection
     }
   end
 
+  # Wait for the server to complete, it will once all connections are processed.
   def join
     @th.join
   end
 end
 
+# TCP Server that accept a single connection
 class TCPServeSingleConnection
-  def initialize(server, port, &block)
-    dts = TCPServer.new(server, port)  
+
+  # Creates a thread server on _addr_, _port_
+  # the block is called for first accepted connection
+  # once the block exits, the socket is closed.
+  def initialize(addr, port) # :yields: socket
+    dts = TCPServer.new(addr, port)  
     @th = Thread.start {
       s=dts.accept
-      block.call(s)
+      yield s
       s.close
       dts.close
     }
   end
 
+  # Wait for the server to complete, it will once the connection is processed.
   def join
     @th.join
   end
 end
 
+# TCP Server that accept a single connection and sent data to it
 class TCPServeSingleDataSender < TCPServeSingleConnection
-  def initialize(server, port, data)
-    super(server, port) { |s|
+
+  # Creates a thread server on _addr_, _port_ that send _data_ on connection,
+  # then closes the socket.
+  def initialize(addr, port, data)
+    super(addr, port) { |s|
       s.write(data)
     }
   end
 end
 
+# TCP Server that accept a single connection and receive data from it
 class TCPServeSingleDataReciever < TCPServeSingleConnection
-  def initialize(server, port, maxlen)
-    super(server, port) { |s|
-      @datarecv=s.recv(100)
+
+  # Creates a thread server on _addr_, _port_ that receive up to _maxlen_
+  # on connection, then closes the socket.
+  def initialize(addr, port, maxlen)
+    super(addr, port) { |s|
+      @datarecv=s.recv(maxlen)
     }
   end
+
+  # Wait for the server to complete, and return the received data.
   def join
     super
     return @datarecv
   end
 end
 
-
-def TCPSingleDataRecv(server, port, maxlen)
-  streamSock = TCPSocket.new(server, port)  
+# Receive up to _maxlen_ data from a TCP Socket on _addr_,_port_
+def TCPSingleDataRecv(addr, port, maxlen)
+  streamSock = TCPSocket.new(addr, port)  
   data = streamSock.recv( maxlen )  
   streamSock.close
   return data
 end
 
 
-def TCPSingleDataSend(server, port, data)
-  streamSock = TCPSocket.new(server, port)  
+# Send _data_ to a TCP Socket on _addr_,_port_
+def TCPSingleDataSend(addr, port, data)
+  streamSock = TCPSocket.new(addr, port)  
   streamSock.write( data )  
   streamSock.close
 end
 
-
-# The following function is mostly inspired from the code snippet published 
+# Recursively compare two objects. Asserts if a difference was found.
+#
+# Note: The function is mostly inspired from the code snippet published 
 # by Scott Bronson on http://gist.github.com/287675
 # rewritten using Test::Unit::Assertions to better fit in tests
 def assert_equal_objects(expected, actual, message=nil, path='')

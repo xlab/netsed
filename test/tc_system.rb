@@ -2,12 +2,13 @@
 # netsed Unit::Tests
 # (c) 2010 Julien Viard de Galbert <julien@silicone.homelinux.org>
 #
-# this tests check the TTL (time-to-live) feature on netsed rules
+# this file implements checks for netsed system behaviour in class TC_SystemTest
 
 require 'test/unit'
 require 'test_helper'
 require 'thread'
 
+# Test Case for netsed system behaviour
 class TC_SystemTest < Test::Unit::TestCase
   # def setup
   # end
@@ -15,9 +16,12 @@ class TC_SystemTest < Test::Unit::TestCase
   # def teardown
   # end
 
-  # case of debian bug #586037
-  # actually running it against the old version blocks.
-  # old netsed does not have the SIGINT handling (you have to kill it manually)
+  # Check if netsed can take high CPU load.
+  #
+  # Note: case of debian bug #586037.
+  #
+  # Actually running it against the old version blocks.
+  # Old netsed does not have the SIGINT handling (you have to kill it manually)
   # but the test detects the load.
   def test_TightNonBlockingLoop
     mutex=Mutex.new

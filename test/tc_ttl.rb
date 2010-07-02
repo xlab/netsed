@@ -2,11 +2,12 @@
 # netsed Unit::Tests
 # (c) 2010 Julien Viard de Galbert <julien@silicone.homelinux.org>
 #
-# this tests check the TTL (time-to-live) feature on netsed rules
+# this file implements checks for the TTL (time-to-live) feature of netsed rules in the class TC_TTLTest.
 
 require 'test/unit'
 require 'test_helper'
 
+# Test Case for netsed TTL (time-to-live) feature
 class TC_TTLTest < Test::Unit::TestCase
   # def setup
   # end
@@ -14,7 +15,8 @@ class TC_TTLTest < Test::Unit::TestCase
   # def teardown
   # end
 
-  def test_TTL_basic
+  # Check first occurrence
+  def test_TTL_1
     datasent   = 'test andrew and andrew'
     dataexpect = 'test mike and andrew'
     serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
@@ -29,6 +31,7 @@ class TC_TTLTest < Test::Unit::TestCase
     assert_equal(dataexpect, datarecv)
   end
 
+  # Check 20 occurrences
   def test_TTL_20
     datasent   = '% %% %%% %%%% %%%%% %%%%%% %%%%%%%'
     dataexpect = '/ // /// //// ///// /////% %%%%%%%'
