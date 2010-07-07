@@ -47,6 +47,29 @@ class TC_TTLTest < Test::Unit::TestCase
     assert_equal(dataexpect, datarecv)
   end
 
+  # Check first occurrence in several connections: the TTL is not global.
+  def test_TTL_1_byConnections
+    datasent   = 'test andrew and andrew'
+    dataexpect = 'test mike and andrew'
+
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, 's/andrew/mike/1')
+
+    serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
+    datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)
+    serv.join
+
+    assert_equal(dataexpect, datarecv, 'At first connection')
+
+    # once again
+    serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
+    datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)
+    serv.join
+
+    assert_equal(dataexpect, datarecv, 'At second connection')
+  ensure
+    netsed.kill
+  end
+
 end
 
 # vim:sw=2:sta:et:
