@@ -43,9 +43,9 @@ struct rule_s {
 };
 
 struct tracker_s {
-  // recvfrom information
-  struct sockaddr_storage s;
-  socklen_t l;
+  // recvfrom information: 'connect' address
+  struct sockaddr_storage csa;
+  socklen_t csl;
   // socket to forward to server
   int fsock;
   // last event time, for timeout
@@ -225,6 +225,9 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
         close(lsock);
         continue;
       }
+    } else { // udp
+      int one=1;
+      setsockopt(lsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
     }
     /* Successfully bound and now also listening. */
     break;
@@ -525,7 +528,7 @@ int main(int argc,char* argv[]) {
         struct tracker_s * conn = connections;
         while(conn != NULL) {
           // look for existing connections
-          if ((conn->l == l) && (0 == memcmp(&s, &(conn->s), l))) {
+          if ((conn->csl == l) && (0 == memcmp(&s, &(conn->csa), l))) {
             // found
             break;
           }
@@ -535,23 +538,61 @@ int main(int argc,char* argv[]) {
         // not found
         if(conn == NULL) {
           // create it
+          int one=1;
           getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                       portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
           printf("[+] Got incoming datagram from new source %s,%s\n", ipstr, portstr);
           conn=malloc(sizeof(struct tracker_s));
           if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
-          memcpy(&(conn->s), &s, l);
-          conn->l = l;
-          conn->fsock = 0; // TODO
+          memcpy(&(conn->csa), &s, l);
+          conn->csl = l;
+          conn->fsock = 0;
           conn->time = now;
           conn->n = connections;
           connections = conn;
 
 
+          getsockname(lsock,(struct sockaddr*)&s,&l);
+          conpo = get_port((struct sockaddr *) &s);
+          
+          memcpy(&conho, &s, sizeof(conho));
+
+          if (fixedport) conpo=fixedport;
+          if (fixedhost.ss_family)
+            memcpy(&conho, &fixedhost, sizeof(conho));
+
+          memcpy(&s, &conho, sizeof(s));
+          getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                      portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+          printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
+
+          // forward to addr
+          memcpy(&s, &conho, sizeof(s));
+          set_port((struct sockaddr *) &s, conpo);
+          l=sizeof(s); // TODO keep actual conho size...
+          // connect will bind with some dynamic addr/port
+          conn->fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
+
+          if (connect(conn->fsock,(struct sockaddr*)&s,l)) {
+             printf("[!] Cannot connect to remote server, dropping connection.\n");
+             close(conn->fsock);
+             conn->fsock=0;
+          }
+          setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+
         } else {
           DBG("[+] existing connection.\n");
         }
         // process forwarding
+        if (n>0) {
+          printf("[+] Caught client -> server packet.\n");
+          n=sed_the_buffer(n);
+          if (write(conn->fsock,b2,n)<=0) {
+            DBG("[!] write failed...\n");
+            //DBG("[!] server disconnected. (wr)\n");
+            //TODO return 0; // not able to send
+          }
+        }
         
       }
     }
