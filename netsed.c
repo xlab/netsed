@@ -204,9 +204,11 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
       close(lsock);
       continue;
     }
-    if (listen(lsock, 16) < 0) {
-      close(lsock);
-      continue;
+    if (tcp) {
+      if (listen(lsock, 16) < 0) {
+        close(lsock);
+        continue;
+      }
     }
     /* Successfully bound and now also listening. */
     break;
@@ -345,12 +347,14 @@ int main(int argc,char* argv[]) {
   in_port_t fixedport = 0;
   struct sockaddr_storage fixedhost;
   struct addrinfo hints, *res, *reslist;
+  int tcp;
 
   memset(&fixedhost, '\0', sizeof(fixedhost));
   printf("netsed " VERSION " by Michal Zalewski <lcamtuf@ids.pl>\n");
   setbuffer(stdout,NULL,0);
   if (argc<6) usage_hints("not enough parameters");
   if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect procotol");
+  tcp = strncasecmp(argv[1], "udp", 3);
   // parse rules
   for (i=5;i<argc;i++) {
     char *fs=0, *ts=0, *cs=0;
@@ -377,7 +381,7 @@ int main(int argc,char* argv[]) {
   memset(&hints, '\0', sizeof(hints));
   hints.ai_family = AF_UNSPEC;
   hints.ai_flags = AI_CANONNAME;
-  hints.ai_socktype = strncasecmp(argv[1], "udp", 3) ? SOCK_STREAM : SOCK_DGRAM;
+  hints.ai_socktype = tcp ? SOCK_STREAM : SOCK_DGRAM;
 
   if ((ret = getaddrinfo(argv[3], argv[4], &hints, &reslist))) {
     ERR("getaddrinfo(): %s\n", gai_strerror(ret));
@@ -405,7 +409,7 @@ int main(int argc,char* argv[]) {
   else
     printf("[+] Using dynamic (transparent proxy) forwarding.\n");
 
-  bind_and_listen(fixedhost.ss_family, strncasecmp(argv[1], "udp", 3), argv[2]);
+  bind_and_listen(fixedhost.ss_family, tcp, argv[2]);
 
   printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
 
@@ -448,51 +452,67 @@ int main(int argc,char* argv[]) {
       continue; // select timeout
     }
 
-    if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
-      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-      printf("[+] Got incoming connection from %s,%s", ipstr, portstr);
-      l = sizeof(s);
-      getsockname(csock,(struct sockaddr*)&s,&l);
-      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-      printf(" to %s,%s\n", ipstr, portstr);
-      conpo = get_port((struct sockaddr *) &s);
+    if (tcp) {
+      if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
+        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+        printf("[+] Got incoming connection from %s,%s", ipstr, portstr);
+        l = sizeof(s);
+        getsockname(csock,(struct sockaddr*)&s,&l);
+        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+        printf(" to %s,%s\n", ipstr, portstr);
+        conpo = get_port((struct sockaddr *) &s);
 
-      memcpy(&conho, &s, sizeof(conho));
+        memcpy(&conho, &s, sizeof(conho));
 
-      if (fixedport) conpo=fixedport; 
-      if (fixedhost.ss_family)
-        memcpy(&conho, &fixedhost, sizeof(conho));
+        if (fixedport) conpo=fixedport; 
+        if (fixedhost.ss_family)
+          memcpy(&conho, &fixedhost, sizeof(conho));
 
-      memcpy(&s, &conho, sizeof(s));
-      getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                  portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-      printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
-      if (!(x=fork())) {
-        int fsock;
-        int one=1;
-
-        close(lsock);
-        DBG("[+] processing (%d).\n",getpid());
         memcpy(&s, &conho, sizeof(s));
-        set_port((struct sockaddr *) &s, conpo);
-        fsock = socket(s.ss_family, strncasecmp(argv[1], "udp", 3) ? SOCK_STREAM : SOCK_DGRAM, 0);
-        if (connect(fsock,(struct sockaddr*)&s,l)) {
-           printf("[!] Cannot connect to remote server, dropping connection.\n");
-           close(fsock);close(csock);
-           exit(0);
+        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+        printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
+        if (!(x=fork())) {
+          int fsock;
+          int one=1;
+
+          close(lsock);
+          DBG("[+] processing (%d).\n",getpid());
+          memcpy(&s, &conho, sizeof(s));
+          set_port((struct sockaddr *) &s, conpo);
+          fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
+          if (connect(fsock,(struct sockaddr*)&s,l)) {
+             printf("[!] Cannot connect to remote server, dropping connection.\n");
+             close(fsock);close(csock);
+             exit(0);
+          }
+          setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+          setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+          while (read_write_sed(fsock,csock))
+            ;
+          if(!stop)
+            printf("[-] Client or server disconnect (%d).\n",getpid());
+          close(fsock); close(csock);
+          exit(0);
         }
-        setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-        setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-        while (read_write_sed(fsock,csock))
-          ;
-        if(!stop)
-          printf("[-] Client or server disconnect (%d).\n",getpid());
-        close(fsock); close(csock);
-        exit(0);
+        close(csock);
       }
-      close(csock);
+    } else { // udp
+      ssize_t n;
+      n = recvfrom(lsock,buf,sizeof(buf),0,(struct sockaddr*)&s,&l);
+      if(n >= 0) {
+        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+        printf("[+] Got incoming datagram from %s,%s", ipstr, portstr);
+        l = sizeof(s);
+        getsockname(lsock,(struct sockaddr*)&s,&l);
+        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+        printf(" to %s,%s\n", ipstr, portstr);
+        
+      }
     }
   }
   close(lsock);
