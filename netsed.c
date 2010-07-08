@@ -51,8 +51,10 @@ enum state_e {
 
 struct tracker_s {
   // recvfrom information: 'connect' address
-  struct sockaddr_storage csa;
+  struct sockaddr* csa;
   socklen_t csl;
+  // connection socket to client
+  int csock;
   // socket to forward to server
   int fsock;
   // last event time, for timeout
@@ -66,10 +68,16 @@ struct tracker_s {
 
 void freetracker (struct tracker_s * conn)
 {
+  if(conn->csa != NULL) { // udp
+    free(conn->csa);
+  } else { // tcp
+    close(conn->csock);
+  }
   close(conn->fsock);
   free(conn);
 }
 
+time_t now;
 int lsock, csock,rules;
 struct rule_s rule[MAXRULES];
 
@@ -288,77 +296,61 @@ int sed_the_buffer(int siz) {
 }
 
 
-int read_write_sed(int s1,int s2) {
-  int rd;
+// prototype this function so that the content is in the same order as in
+// previous read_write_sed function.
+void b2server_sed(struct tracker_s * conn, ssize_t rd);
 
-  int sel;
-  fd_set rd_set;
-  struct timeval timeout;
-  FD_ZERO(&rd_set);
-  FD_SET(s1,&rd_set);
-  FD_SET(s2,&rd_set);
-  timeout.tv_sec = 1;
-  timeout.tv_usec = 0;
-  sel=select((s1<s2)?s2+1:s1+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
-  if (stop)
-  {
-    return 0; // abort requested
-  }
-  if (sel < 0) {
-    DBG("[!] select fail! %s\n", strerror(errno));
-    return 0; // s1 not connected
-  }
-  if (sel == 0) {
-//    DBG("[*] select timeout\n");
-    return 1; // select timeout
-  }
-
-  if (FD_ISSET(s1, &rd_set)) {
-    DBG("[*] select server\n");
-    rd=read(s1,buf,sizeof(buf));
+void server2client_sed(struct tracker_s * conn) {
+    ssize_t rd;
+    rd=read(conn->fsock,buf,sizeof(buf));
     if ((rd<0) && (errno!=EAGAIN))
     {
-      DBG("[!] server disconnected. (rd err)\n");
-      return 0; // s1 not connected
+      DBG("[!] server disconnected. (rd err) %s\n",strerror(errno));
+      conn->state = DISCONNECTED;
     }
     if (rd == 0) {
       // nothing read but select said ok, so EOF
       DBG("[!] server disconnected. (rd)\n");
-      return 0; // not able to send
+      conn->state = DISCONNECTED;
     }
     if (rd>0) {
       printf("[+] Caught server -> client packet.\n");
       rd=sed_the_buffer(rd);
-      if (write(s2,b2,rd)<=0) {
+      conn->time = now;
+      conn->state = ESTABLISHED;
+      if (sendto(conn->csock,b2,rd,0,conn->csa, conn->csl)<=0) {
         DBG("[!] client disconnected. (wr)\n");
-        return 0; // not able to send
+        conn->state = DISCONNECTED;
       }
     }
-  }
-  
-  if (FD_ISSET(s2, &rd_set)) {
-    DBG("[*] select client\n");
-    rd=read(s2,buf,sizeof(buf));
+}
+
+void client2server_sed(struct tracker_s * conn) {
+    ssize_t rd;
+    rd=read(conn->csock,buf,sizeof(buf));
     if ((rd<0) && (errno!=EAGAIN))
     {
       DBG("[!] client disconnected. (rd err)\n");
-      return 0; // s2 not connected
+      conn->state = DISCONNECTED;
     }
     if (rd == 0) {
       // nothing read but select said ok, so EOF
       DBG("[!] client disconnected. (rd)\n");
-      return 0; // not able to send
+      conn->state = DISCONNECTED;
     }
+    b2server_sed(conn, rd);
+}
+
+void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     if (rd>0) {
       printf("[+] Caught client -> server packet.\n");
       rd=sed_the_buffer(rd);
-      if (write(s1,b2,rd)<=0) {
+      conn->time = now;
+      if (write(conn->fsock,b2,rd)<=0) {
         DBG("[!] server disconnected. (wr)\n");
-        return 0; // not able to send
+        conn->state = DISCONNECTED;
       }
     }
-  }
-  return 1;
 }
 
 void sig_chld(int signo)
@@ -452,17 +444,12 @@ int main(int argc,char* argv[]) {
   signal(SIGCHLD,sig_chld);
   signal(SIGINT,sig_int);
 
-  // Am I bad coder?;>
-
   while (!stop) {
     struct sockaddr_storage s;
-    int x;
     socklen_t l = sizeof(s);
     struct sockaddr_storage conho;
     in_port_t conpo;
     char ipstr[INET6_ADDRSTRLEN], portstr[12];
-
-    time_t now;
 
     int sel;
     fd_set rd_set;
@@ -477,6 +464,10 @@ int main(int argc,char* argv[]) {
       struct tracker_s * conn = connections;
       // TODO: process time to adjust timeout
       while(conn != NULL) {
+        if(tcp) {
+          FD_SET(conn->csock, &rd_set);
+          if (nfds < conn->csock) nfds = conn->csock;
+        }
         FD_SET(conn->fsock, &rd_set);
         if (nfds < conn->fsock) nfds = conn->fsock;
         // point on next
@@ -493,11 +484,11 @@ int main(int argc,char* argv[]) {
     if (sel < 0) {
       if (errno == EINTR)
         continue; // we will get some SIGCHLD
-      DBG("[!] listen select fail! %s\n", strerror(errno));
+      DBG("[!] select fail! %s\n", strerror(errno));
       break;
     }
     if (sel == 0) {
-//      DBG("[*] listen select timeout\n");
+//      DBG("[*] select timeout\n");
 //      continue; // select timeout
     }
 
@@ -524,30 +515,34 @@ int main(int argc,char* argv[]) {
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
         printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
-        if (!(x=fork())) {
+        {
           int fsock;
           int one=1;
+          struct tracker_s * conn;
 
-          close(lsock);
-          DBG("[+] processing (%d).\n",getpid());
           memcpy(&s, &conho, sizeof(s));
           set_port((struct sockaddr *) &s, conpo);
           fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
           if (connect(fsock,(struct sockaddr*)&s,l)) {
              printf("[!] Cannot connect to remote server, dropping connection.\n");
              close(fsock);close(csock);
-             exit(0);
+          } else {
+            setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+            setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+            
+            conn = malloc(sizeof(struct tracker_s));
+            if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
+            conn->csa = NULL;
+            conn->csl = 0;
+            conn->csock = csock;
+            conn->time = now;
+            conn->state = ESTABLISHED;
+            conn->fsock = fsock;
+
+            conn->n = connections;
+            connections = conn;
           }
-          setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-          setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-          while (read_write_sed(fsock,csock))
-            ;
-          if(!stop)
-            printf("[-] Client or server disconnect (%d).\n",getpid());
-          close(fsock); close(csock);
-          exit(0);
         }
-        close(csock);
       }
      } else { // udp
       ssize_t n;
@@ -556,7 +551,7 @@ int main(int argc,char* argv[]) {
         struct tracker_s * conn = connections;
         while(conn != NULL) {
           // look for existing connections
-          if ((conn->csl == l) && (0 == memcmp(&s, &(conn->csa), l))) {
+          if ((conn->csl == l) && (0 == memcmp(&s, conn->csa, l))) {
             // found
             break;
           }
@@ -570,13 +565,15 @@ int main(int argc,char* argv[]) {
           getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                       portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
           printf("[+] Got incoming datagram from new source %s,%s\n", ipstr, portstr);
-          conn=malloc(sizeof(struct tracker_s));
+          conn = malloc(sizeof(struct tracker_s));
           if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
-          memcpy(&(conn->csa), &s, l);
+          conn->csa = malloc(l);
+          if(NULL == conn->csa) error("netsed: unable to malloc() connection tracker sockaddr struct");
+          memcpy(conn->csa, &s, l);
           conn->csl = l;
+          conn->csock = lsock;
           conn->time = now;
           conn->state = UNREPLIED;
-
 
           getsockname(lsock,(struct sockaddr*)&s,&l);
           conpo = get_port((struct sockaddr *) &s);
@@ -609,18 +606,11 @@ int main(int argc,char* argv[]) {
             connections = conn;
           }
         } else {
-          DBG("[+] existing connection.\n");
+          DBG("[+] Got incoming datagram from existing connection.\n");
         }
         // process forwarding
-        if ((conn != NULL) && (n>0)) {
-          printf("[+] Caught client -> server packet.\n");
-          n=sed_the_buffer(n);
-          conn->time = now;
-          if (write(conn->fsock,b2,n)<=0) {
-            DBG("[!] write failed...\n");
-            //DBG("[!] server disconnected. (wr)\n");
-            conn->state = DISCONNECTED; // not able to send
-          }
+        if (conn != NULL) {
+          b2server_sed(conn, n);
         }
       } else {
         ERR("recvfrom(): %s", strerror(errno));
@@ -633,41 +623,22 @@ int main(int argc,char* argv[]) {
       struct tracker_s ** pconn = &connections;
       while(conn != NULL) {
         // incoming data ?
-        if(FD_ISSET(conn->fsock, &rd_set)) {
-          ssize_t rd;
-          rd=read(conn->fsock,buf,sizeof(buf));
-          if ((rd<0) && (errno!=EAGAIN))
-          {
-            DBG("[!] server disconnected. (rd err) %s\n",strerror(errno));
-            conn->state = DISCONNECTED;
-          }
-          if (rd == 0) {
-            // nothing read but select said ok, so EOF
-            DBG("[!] server disconnected. (rd)\n");
-            conn->state = DISCONNECTED;
-          }
-          if (rd>0) {
-            printf("[+] Caught server -> client packet.\n");
-            rd=sed_the_buffer(rd);
-            conn->time = now;
-            conn->state = ESTABLISHED;
-            if (sendto(lsock,b2,rd,0,(struct sockaddr *) &(conn->csa), conn->csl)<=0) {
-              DBG("[!] client disconnected. (wr)\n");
-              conn->state = DISCONNECTED;
-            }
-          }
+        if(FD_ISSET(conn->csock, &rd_set)) {
+          client2server_sed(conn);
         }
-        // timeout ?
+        if(FD_ISSET(conn->fsock, &rd_set)) {
+          server2client_sed(conn);
+        }
+        // timeout ? udp only
         //DBG("[!] connection last time: %d, now: %d\n", conn->time, now);
-        if((now - conn->time) > UDP_TIMEOUT) {
+        if(!tcp && ((now - conn->time) > UDP_TIMEOUT)) {
           DBG("[!] connection timeout.\n");
           conn->state = TIMEOUT;
         }
         if(conn->state >= DISCONNECTED) {
+          // remove it
           (*pconn)=conn->n;
-
           freetracker(conn);
-
           conn=(*pconn);
         } else {
           // point on next
