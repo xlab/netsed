@@ -64,6 +64,12 @@ struct tracker_s {
   struct tracker_s * n;
 };
 
+void freetracker (struct tracker_s * conn)
+{
+  close(conn->fsock);
+  free(conn);
+}
+
 int lsock, csock,rules;
 struct rule_s rule[MAXRULES];
 
@@ -595,9 +601,7 @@ int main(int argc,char* argv[]) {
 
           if (connect(conn->fsock,(struct sockaddr*)&s,l)) {
              printf("[!] Cannot connect to remote server, dropping connection.\n");
-             close(conn->fsock);
-             conn->fsock=0;
-             free(conn);
+             freetracker(conn);
              conn=NULL;
           } else {
             setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
@@ -627,7 +631,6 @@ int main(int argc,char* argv[]) {
     {
       struct tracker_s * conn = connections;
       struct tracker_s ** pconn = &connections;
-      // TODO: process time to close connections
       while(conn != NULL) {
         // incoming data ?
         if(FD_ISSET(conn->fsock, &rd_set)) {
@@ -663,8 +666,7 @@ int main(int argc,char* argv[]) {
         if(conn->state >= DISCONNECTED) {
           (*pconn)=conn->n;
 
-          close(conn->fsock);
-          free(conn);
+          freetracker(conn);
 
           conn=(*pconn);
         } else {
@@ -677,6 +679,18 @@ int main(int argc,char* argv[]) {
 
   }
   close(lsock);
+  // close all tracker
+  {
+    struct tracker_s * conn = connections;
+    while(conn != NULL) {
+      connections = conn->n;
+
+      freetracker(conn);
+
+      conn = connections;
+    }
+  }
+
   exit(0);
 }
 
