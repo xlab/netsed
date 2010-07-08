@@ -376,7 +376,8 @@ int main(int argc,char* argv[]) {
   int tcp;
 
   memset(&fixedhost, '\0', sizeof(fixedhost));
-  printf("netsed " VERSION " by Michal Zalewski <lcamtuf@ids.pl>\n");
+  printf("netsed " VERSION " by Julien VdG <julien@silicone.homelinux.org>\n"
+         "     based on 0.01c from Michal Zalewski <lcamtuf@ids.pl>\n");
   setbuffer(stdout,NULL,0);
   if (argc<6) usage_hints("not enough parameters");
   if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect procotol");
