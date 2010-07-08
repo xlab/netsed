@@ -452,12 +452,24 @@ int main(int argc,char* argv[]) {
     int sel;
     fd_set rd_set;
     struct timeval timeout;
+    int nfds = lsock;
     FD_ZERO(&rd_set);
     FD_SET(lsock,&rd_set);
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
 
-    sel=select(lsock+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+    {
+      struct tracker_s * conn = connections;
+      // TODO: process time to adjust timeout
+      while(conn != NULL) {
+        FD_SET(conn->fsock, &rd_set);
+        if (nfds < conn->fsock) nfds = conn->fsock;
+        // point on next
+        conn = conn->n;
+      }
+    }
+
+    sel=select(nfds+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
     time(&now);
     if (stop)
     {
@@ -474,7 +486,8 @@ int main(int argc,char* argv[]) {
       continue; // select timeout
     }
 
-    if (tcp) {
+    if (FD_ISSET(lsock, &rd_set)) {
+     if (tcp) {
       if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
@@ -521,7 +534,7 @@ int main(int argc,char* argv[]) {
         }
         close(csock);
       }
-    } else { // udp
+     } else { // udp
       ssize_t n;
       n = recvfrom(lsock,buf,sizeof(buf),0,(struct sockaddr*)&s,&l);
       if(n >= 0) {
@@ -546,10 +559,7 @@ int main(int argc,char* argv[]) {
           if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
           memcpy(&(conn->csa), &s, l);
           conn->csl = l;
-          conn->fsock = 0;
           conn->time = now;
-          conn->n = connections;
-          connections = conn;
 
 
           getsockname(lsock,(struct sockaddr*)&s,&l);
@@ -577,14 +587,18 @@ int main(int argc,char* argv[]) {
              printf("[!] Cannot connect to remote server, dropping connection.\n");
              close(conn->fsock);
              conn->fsock=0;
+             free(conn);
+             conn=NULL;
+          } else {
+            setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+            conn->n = connections;
+            connections = conn;
           }
-          setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-
         } else {
           DBG("[+] existing connection.\n");
         }
         // process forwarding
-        if (n>0) {
+        if ((conn != NULL) && (n>0)) {
           printf("[+] Caught client -> server packet.\n");
           n=sed_the_buffer(n);
           if (write(conn->fsock,b2,n)<=0) {
@@ -595,7 +609,42 @@ int main(int argc,char* argv[]) {
         }
         
       }
+     }
+    } // lsock is set
+    // all other sockets
+    {
+      struct tracker_s * conn = connections;
+      // TODO: process time to close connections
+      while(conn != NULL) {
+        if(FD_ISSET(conn->fsock, &rd_set)) {
+          ssize_t rd;
+          DBG("[*] select server\n");
+          rd=read(conn->fsock,buf,sizeof(buf));
+          if ((rd<0) && (errno!=EAGAIN))
+          {
+            DBG("[!] server disconnected. (rd err)\n");
+            //return 0; // s1 not connected
+          }
+          if (rd == 0) {
+            // nothing read but select said ok, so EOF
+            DBG("[!] server disconnected. (rd)\n");
+            //return 0; // not able to send
+          }
+          if (rd>0) {
+            printf("[+] Caught server -> client packet.\n");
+            rd=sed_the_buffer(rd);
+            if (sendto(lsock,b2,rd,0,&(conn->csa), conn->csl)<=0) {
+              DBG("[!] client disconnected. (wr)\n");
+              //return 0; // not able to send
+            }
+          }
+
+        }
+        // point on next
+        conn = conn->n;
+      }
     }
+
   }
   close(lsock);
   exit(0);
