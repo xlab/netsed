@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <netdb.h>
+#include <time.h>
 
 #define VERSION "0.02c"
 #define MAXRULES 50
@@ -32,6 +33,7 @@
 #define DBG(x...)
 #endif
 
+#define UDP_TIMEOUT 30
 
 struct rule_s {
   char *from,*to;
@@ -40,9 +42,23 @@ struct rule_s {
   int live;
 };
 
+struct tracker_s {
+  // recvfrom information
+  struct sockaddr_storage s;
+  socklen_t l;
+  // socket to forward to server
+  int fsock;
+  // last event time, for timeout
+  time_t time;
+
+  // chain it
+  struct tracker_s * n;
+};
 
 int lsock, csock,rules;
 struct rule_s rule[MAXRULES];
+
+struct tracker_s * connections = NULL;
 
 volatile int stop=0;
 
@@ -428,6 +444,8 @@ int main(int argc,char* argv[]) {
     in_port_t conpo;
     char ipstr[INET6_ADDRSTRLEN], portstr[12];
 
+    time_t now;
+
     int sel;
     fd_set rd_set;
     struct timeval timeout;
@@ -437,6 +455,7 @@ int main(int argc,char* argv[]) {
     timeout.tv_usec = 0;
 
     sel=select(lsock+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+    time(&now);
     if (stop)
     {
       break;
@@ -503,14 +522,36 @@ int main(int argc,char* argv[]) {
       ssize_t n;
       n = recvfrom(lsock,buf,sizeof(buf),0,(struct sockaddr*)&s,&l);
       if(n >= 0) {
-        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-        printf("[+] Got incoming datagram from %s,%s", ipstr, portstr);
-        l = sizeof(s);
-        getsockname(lsock,(struct sockaddr*)&s,&l);
-        getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                    portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-        printf(" to %s,%s\n", ipstr, portstr);
+        struct tracker_s * conn = connections;
+        while(conn != NULL) {
+          // look for existing connections
+          if ((conn->l == l) && (0 == memcmp(&s, &(conn->s), l))) {
+            // found
+            break;
+          }
+          // point on next
+          conn = conn->n;
+        }
+        // not found
+        if(conn == NULL) {
+          // create it
+          getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
+                      portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
+          printf("[+] Got incoming datagram from new source %s,%s\n", ipstr, portstr);
+          conn=malloc(sizeof(struct tracker_s));
+          if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
+          memcpy(&(conn->s), &s, l);
+          conn->l = l;
+          conn->fsock = 0; // TODO
+          conn->time = now;
+          conn->n = connections;
+          connections = conn;
+
+
+        } else {
+          DBG("[+] existing connection.\n");
+        }
+        // process forwarding
         
       }
     }
