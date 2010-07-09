@@ -39,7 +39,6 @@ struct rule_s {
   char *from,*to;
   const char *forig, *torig;
   int fs,ts;
-  int live;
 };
 
 enum state_e {
@@ -59,8 +58,10 @@ struct tracker_s {
   int fsock;
   // last event time, for timeout
   time_t time;
-  // 
+  // connection state
   enum state_e state;
+  // by connection TTL
+  int* live;
 
   // chain it
   struct tracker_s * n;
@@ -80,6 +81,7 @@ void freetracker (struct tracker_s * conn)
 time_t now;
 int lsock, rules;
 struct rule_s rule[MAXRULES];
+int rule_live[MAXRULES];
 
 struct tracker_s * connections = NULL;
 
@@ -263,7 +265,7 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
 char buf[MAX_BUF];
 char b2[MAX_BUF];
 
-int sed_the_buffer(int siz) {
+int sed_the_buffer(int siz, int* live) {
   int i=0,j=0;
   int newsize=0;
   int changes=0;
@@ -271,12 +273,12 @@ int sed_the_buffer(int siz) {
   for (i=0;i<siz;) {
     gotchange=0;
     for (j=0;j<rules;j++) {
-      if ((!memcmp(&buf[i],rule[j].from,rule[j].fs)) && (rule[j].live!=0)) {
+      if ((!memcmp(&buf[i],rule[j].from,rule[j].fs)) && (live[j]!=0)) {
         changes++;
         gotchange=1;
         printf("    Applying rule s/%s/%s...\n",rule[j].forig,rule[j].torig);
-        rule[j].live--;
-        if (rule[j].live==0) printf("    (rule just expired)\n");
+        live[j]--;
+        if (live[j]==0) printf("    (rule just expired)\n");
         memcpy(&b2[newsize],rule[j].to,rule[j].ts);
         newsize+=rule[j].ts;
         i+=rule[j].fs;
@@ -315,7 +317,7 @@ void server2client_sed(struct tracker_s * conn) {
     }
     if (rd>0) {
       printf("[+] Caught server -> client packet.\n");
-      rd=sed_the_buffer(rd);
+      rd=sed_the_buffer(rd, conn->live);
       conn->time = now;
       conn->state = ESTABLISHED;
       if (sendto(conn->csock,b2,rd,0,conn->csa, conn->csl)<=0) {
@@ -344,7 +346,7 @@ void client2server_sed(struct tracker_s * conn) {
 void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     if (rd>0) {
       printf("[+] Caught client -> server packet.\n");
-      rd=sed_the_buffer(rd);
+      rd=sed_the_buffer(rd, conn->live);
       conn->time = now;
       if (write(conn->fsock,b2,rd)<=0) {
         DBG("[!] server disconnected. (wr)\n");
@@ -398,7 +400,7 @@ int main(int argc,char* argv[]) {
     if (cs) { *cs=0; cs++; }
     rule[rules].forig=fs;
     rule[rules].torig=ts;
-    if (cs) rule[rules].live=atoi(cs); else rule[rules].live=-1;
+    if (cs) rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
     shrink_to_binary(&rule[rules]);
 //    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
     rules++;    
@@ -550,6 +552,10 @@ int main(int argc,char* argv[]) {
         }
         conn->csock = csock;
         conn->time = now;
+
+        conn->live = malloc(rules*sizeof(int));
+        if(NULL == conn->live) error("netsed: unable to malloc() connection tracker sockaddr struct");
+        memcpy(conn->live, rule_live, rules*sizeof(int));
 
         l = sizeof(s);
         getsockname(csock,(struct sockaddr*)&s,&l);
