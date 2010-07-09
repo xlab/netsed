@@ -78,7 +78,7 @@ void freetracker (struct tracker_s * conn)
 }
 
 time_t now;
-int lsock, csock,rules;
+int lsock, rules;
 struct rule_s rule[MAXRULES];
 
 struct tracker_s * connections = NULL;
@@ -374,6 +374,7 @@ int main(int argc,char* argv[]) {
   struct sockaddr_storage fixedhost;
   struct addrinfo hints, *res, *reslist;
   int tcp;
+  struct tracker_s * conn;
 
   memset(&fixedhost, '\0', sizeof(fixedhost));
   printf("netsed " VERSION " by Julien VdG <julien@silicone.homelinux.org>\n"
@@ -462,7 +463,7 @@ int main(int argc,char* argv[]) {
     timeout.tv_usec = 0;
 
     {
-      struct tracker_s * conn = connections;
+      conn = connections;
       // TODO: process time to adjust timeout
       while(conn != NULL) {
         if(tcp) {
@@ -494,11 +495,62 @@ int main(int argc,char* argv[]) {
     }
 
     if (FD_ISSET(lsock, &rd_set)) {
-     if (tcp) {
-      if ((csock=accept(lsock,(struct sockaddr*)&s,&l))>=0) {
+      int csock=-1;
+      ssize_t rd=-1;
+      if (tcp) {
+        csock = accept(lsock,(struct sockaddr*)&s,&l);
+      } else {
+        // udp does not handle accept, so track connections manually
+        // also set csock if a new connection need to be registered
+        // to share the code with tcp ;)
+        rd = recvfrom(lsock,buf,sizeof(buf),0,(struct sockaddr*)&s,&l);
+        if(rd >= 0) {
+          conn = connections;
+          while(conn != NULL) {
+            // look for existing connections
+            if ((conn->csl == l) && (0 == memcmp(&s, conn->csa, l))) {
+              // found
+              break;
+            }
+            // point on next
+            conn = conn->n;
+          }
+          // not found
+          if(conn == NULL) {
+            // udp 'connection' socket is the listening one
+            csock = lsock;
+          } else {
+            DBG("[+] Got incoming datagram from existing connection.\n");
+          }
+        } else {
+          ERR("recvfrom(): %s", strerror(errno));
+        }
+      }
+
+      // new connection (tcp accept, or udp conn not found)
+      if ((csock)>=0) {
+        int one=1;
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
         printf("[+] Got incoming connection from %s,%s", ipstr, portstr);
+        conn = malloc(sizeof(struct tracker_s));
+        if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
+        // protocol specific init
+        if (tcp) {
+          setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+          conn->csa = NULL;
+          conn->csl = 0;
+          conn->state = ESTABLISHED;
+        } else {
+          conn->csa = malloc(l);
+          if(NULL == conn->csa) error("netsed: unable to malloc() connection tracker sockaddr struct");
+          memcpy(conn->csa, &s, l);
+          conn->csl = l;          
+          conn->state = UNREPLIED;
+        }
+        conn->csock = csock;
+        conn->time = now;
+
         l = sizeof(s);
         getsockname(csock,(struct sockaddr*)&s,&l);
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
@@ -516,151 +568,64 @@ int main(int argc,char* argv[]) {
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
         printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
-        {
-          int fsock;
-          int one=1;
-          struct tracker_s * conn;
 
-          memcpy(&s, &conho, sizeof(s));
-          set_port((struct sockaddr *) &s, conpo);
-          fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
-          if (connect(fsock,(struct sockaddr*)&s,l)) {
-             printf("[!] Cannot connect to remote server, dropping connection.\n");
-             close(fsock);close(csock);
-          } else {
-            setsockopt(csock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-            setsockopt(fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-            
-            conn = malloc(sizeof(struct tracker_s));
-            if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
-            conn->csa = NULL;
-            conn->csl = 0;
-            conn->csock = csock;
-            conn->time = now;
-            conn->state = ESTABLISHED;
-            conn->fsock = fsock;
+        // forward to addr
+        memcpy(&s, &conho, sizeof(s));
+        set_port((struct sockaddr *) &s, conpo);
+        l=sizeof(s);
+        // connect will bind with some dynamic addr/port
+        conn->fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
 
-            conn->n = connections;
-            connections = conn;
-          }
-        }
-      }
-     } else { // udp
-      ssize_t n;
-      n = recvfrom(lsock,buf,sizeof(buf),0,(struct sockaddr*)&s,&l);
-      if(n >= 0) {
-        struct tracker_s * conn = connections;
-        while(conn != NULL) {
-          // look for existing connections
-          if ((conn->csl == l) && (0 == memcmp(&s, conn->csa, l))) {
-            // found
-            break;
-          }
-          // point on next
-          conn = conn->n;
-        }
-        // not found
-        if(conn == NULL) {
-          // create it
-          int one=1;
-          getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                      portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-          printf("[+] Got incoming datagram from new source %s,%s\n", ipstr, portstr);
-          conn = malloc(sizeof(struct tracker_s));
-          if(NULL == conn) error("netsed: unable to malloc() connection tracker struct");
-          conn->csa = malloc(l);
-          if(NULL == conn->csa) error("netsed: unable to malloc() connection tracker sockaddr struct");
-          memcpy(conn->csa, &s, l);
-          conn->csl = l;
-          conn->csock = lsock;
-          conn->time = now;
-          conn->state = UNREPLIED;
-
-          getsockname(lsock,(struct sockaddr*)&s,&l);
-          conpo = get_port((struct sockaddr *) &s);
-          
-          memcpy(&conho, &s, sizeof(conho));
-
-          if (fixedport) conpo=fixedport;
-          if (fixedhost.ss_family)
-            memcpy(&conho, &fixedhost, sizeof(conho));
-
-          memcpy(&s, &conho, sizeof(s));
-          getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
-                      portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
-          printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
-
-          // forward to addr
-          memcpy(&s, &conho, sizeof(s));
-          set_port((struct sockaddr *) &s, conpo);
-          l=sizeof(s); // TODO keep actual conho size...
-          // connect will bind with some dynamic addr/port
-          conn->fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
-
-          if (connect(conn->fsock,(struct sockaddr*)&s,l)) {
-             printf("[!] Cannot connect to remote server, dropping connection.\n");
-             freetracker(conn);
-             conn=NULL;
-          } else {
-            setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
-            conn->n = connections;
-            connections = conn;
-          }
+        if (connect(conn->fsock,(struct sockaddr*)&s,l)) {
+           printf("[!] Cannot connect to remote server, dropping connection.\n");
+           freetracker(conn);
+           conn = NULL;
         } else {
-          DBG("[+] Got incoming datagram from existing connection.\n");
+          setsockopt(conn->fsock,SOL_SOCKET,SO_OOBINLINE,&one,sizeof(int));
+          conn->n = connections;
+          connections = conn;
         }
-        // process forwarding
-        if (conn != NULL) {
-          b2server_sed(conn, n);
-        }
-      } else {
-        ERR("recvfrom(): %s", strerror(errno));
       }
-     }
+      // udp has data process forwarding
+      if((rd >= 0) && (conn != NULL)) {
+        b2server_sed(conn, rd);
+      }
     } // lsock is set
     // all other sockets
-    {
-      struct tracker_s * conn = connections;
-      struct tracker_s ** pconn = &connections;
-      while(conn != NULL) {
-        // incoming data ?
-        if(FD_ISSET(conn->csock, &rd_set)) {
-          client2server_sed(conn);
-        }
-        if(FD_ISSET(conn->fsock, &rd_set)) {
-          server2client_sed(conn);
-        }
-        // timeout ? udp only
-        //DBG("[!] connection last time: %d, now: %d\n", conn->time, now);
-        if(!tcp && ((now - conn->time) > UDP_TIMEOUT)) {
-          DBG("[!] connection timeout.\n");
-          conn->state = TIMEOUT;
-        }
-        if(conn->state >= DISCONNECTED) {
-          // remove it
-          (*pconn)=conn->n;
-          freetracker(conn);
-          conn=(*pconn);
-        } else {
-          // point on next
-          pconn = &(conn->n);
-          conn = conn->n;
-        }
+    conn = connections;
+    struct tracker_s ** pconn = &connections;
+    while(conn != NULL) {
+      // incoming data ?
+      if(tcp && FD_ISSET(conn->csock, &rd_set)) {
+        client2server_sed(conn);
+      }
+      if(FD_ISSET(conn->fsock, &rd_set)) {
+        server2client_sed(conn);
+      }
+      // timeout ? udp only
+      //DBG("[!] connection last time: %d, now: %d\n", conn->time, now);
+      if(!tcp && ((now - conn->time) > UDP_TIMEOUT)) {
+        DBG("[!] connection timeout.\n");
+        conn->state = TIMEOUT;
+      }
+      if(conn->state >= DISCONNECTED) {
+        // remove it
+        (*pconn)=conn->n;
+        freetracker(conn);
+        conn=(*pconn);
+      } else {
+        // point on next
+        pconn = &(conn->n);
+        conn = conn->n;
       }
     }
-
   }
   close(lsock);
   // close all tracker
-  {
-    struct tracker_s * conn = connections;
-    while(conn != NULL) {
-      connections = conn->n;
-
-      freetracker(conn);
-
-      conn = connections;
-    }
+  while(connections != NULL) {
+    conn = connections;
+    connections = conn->n;
+    freetracker(conn);
   }
 
   exit(0);
