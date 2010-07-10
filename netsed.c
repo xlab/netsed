@@ -2,6 +2,11 @@
 //  Please contact Julien VdG <julien@silicone.homelinux.org> if you encounter
 //  any problems with this version.
 //  The changes compared to version 0.01c are related in the NEWS file.
+
+///\mainpage
+///
+///\page README User documentation
+///\verbinclude README
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
