@@ -143,6 +143,15 @@ def TCPSingleDataSend(addr, port, data)
   streamSock.close
 end
 
+
+# Send _data_ to a UDP Socket on _addr_,_port_
+def UDPSingleDataSend(addr, port, data)
+  dataSock = UDPSocket.new
+  dataSock.connect(addr, port)  
+  dataSock.write( data )  
+  dataSock.close
+end
+
 # Recursively compare two objects. Asserts if a difference was found.
 #
 # Note: The function is mostly inspired from the code snippet published 
