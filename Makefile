@@ -7,6 +7,9 @@ all: netsed
 clean:
 	rm -f netsed core *.o netsed.tgz
 
+doc:
+	doxygen doxygen.conf
+
 check_version:
 	@echo netsed $(VERSION)
 	@grep $(VERSION) NEWS>/dev/null #version should appear in NEWS file

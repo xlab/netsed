@@ -3,10 +3,20 @@
 //  any problems with this version.
 //  The changes compared to version 0.01c are related in the NEWS file.
 
-///\mainpage
+///@mainpage
 ///
-///\page README User documentation
-///\verbinclude README
+/// This documentation is targeting netsed devloppers, if you are a user
+/// either launch netsed without parameters or read the README file (@link README @endlink).
+///
+///@par
+/// - Currently netsed is implemented in a single file: netsed.c
+/// - some TODOs are gathered on the @link todo @endlink page,
+///   some others are in the TODO file.
+/// .
+
+///@page README User documentation
+///@verbinclude README
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -25,53 +35,82 @@
 #include <netdb.h>
 #include <time.h>
 
+/// Current version (recovered by Makefile for several release checks)
 #define VERSION "0.02c"
+/// max size for rule arrays
+/// @todo make it dynamic or check actual size...
 #define MAXRULES 50
+/// max size for buffers
 #define MAX_BUF  100000
 
+/// printf to stderr
 #define ERR(x...) fprintf(stderr,x)
 
-#define DEBUG
+// uncomment to add a lot of debug information
+//#define DEBUG
 #ifdef DEBUG
 #define DBG(x...) printf(x)
 #else
 #define DBG(x...)
 #endif
 
+/// Timeout for udp 'connections' in seconds 
 #define UDP_TIMEOUT 30
 
+/// rule item.
 struct rule_s {
-  char *from,*to;
-  const char *forig, *torig;
-  int fs,ts;
+  /// binary buffer to match.
+  char *from;
+  /// binary buffer replacement.
+  char *to;
+  /// match from the command line.
+  const char *forig;
+  /// replacement from the command line.
+  const char *torig;
+  /// length of #from buffer.
+  int fs;
+  /// length of #to buffer.
+  int ts;
 };
 
+/// Connection state
 enum state_e {
+  /// udp datagram received by netsed and send to server, no response yet.
   UNREPLIED,
+  /// tcp accepted connection or udp 'connection' with a response from server.
   ESTABLISHED,
+  /// tcp or udp disconnected (detected by an error on read or send).
+  /// @note all values after and including #DISCONNECTED are considered as 
+  /// error and the connection will be discarded.
   DISCONNECTED,
+  /// udp timeout expired.
   TIMEOUT
 };
 
+/// This structure is used to track information about open connections.
 struct tracker_s {
-  // recvfrom information: 'connect' address
+  /// recvfrom information: 'connect' address for udp
   struct sockaddr* csa;
+  /// size of #csa
   socklen_t csl;
-  // connection socket to client
+  /// connection socket to client
   int csock;
-  // socket to forward to server
+  /// socket to forward to server
   int fsock;
-  // last event time, for timeout
+  /// last event time, for udp timeout
   time_t time;
-  // connection state
+  /// connection state
   enum state_e state;
-  // by connection TTL
+  /// by connection TTL
   int* live;
 
-  // chain it
+  /// chain it !
   struct tracker_s * n;
 };
 
+/// Helper function to free a tracker_s item.
+/// csa will be freed if needed, sockets will be closed
+/// @param conn pointer to free.
 void freetracker (struct tracker_s * conn)
 {
   if(conn->csa != NULL) { // udp
@@ -83,15 +122,26 @@ void freetracker (struct tracker_s * conn)
   free(conn);
 }
 
+/// to store current time (just after select returned).
 time_t now;
-int lsock, rules;
+/// listening socket.
+int lsock;
+/// number of rules.
+int rules;
+/// all rules.
 struct rule_s rule[MAXRULES];
+/// TTL part of the rule as a flat array to be able to copy it 
+/// in tracker_s::live for each connections.
 int rule_live[MAXRULES];
 
+/// list of connections.
 struct tracker_s * connections = NULL;
 
+/// true when SIGINT signal was received.
 volatile int stop=0;
 
+/// Display an error message followed by usage information.
+/// @param why the error message.
 void usage_hints(const char* why) {
   ERR("Error: %s\n\n",why);
   ERR("Usage: netsed proto lport rhost rport rule1 [ rule2 ... ]\n\n");
@@ -125,6 +175,8 @@ in_port_t get_port(struct sockaddr *sa) __attribute__ ((noinline));
 void set_port(struct sockaddr *sa, in_port_t port) __attribute__ ((noinline));
 #endif
 
+/// extract the port information from a sockaddr for both IPv4 and IPv6.
+/// @param sa sockaddr to get port from
 in_port_t get_port(struct sockaddr *sa) {
   switch (sa->sa_family) {
     case AF_INET:
@@ -136,6 +188,9 @@ in_port_t get_port(struct sockaddr *sa) {
   }
 } /* get_port(struct sockaddr *) */
 
+/// set the port information in a sockaddr for both IPv4 and IPv6.
+/// @param sa   sockaddr to update
+/// @param port port value
 void set_port(struct sockaddr *sa, in_port_t port) {
   switch (sa->sa_family) {
     case AF_INET:
@@ -148,15 +203,19 @@ void set_port(struct sockaddr *sa, in_port_t port) {
   }
 } /* set_port(struct sockaddr *, in_port_t) */
 
+/// Display an error message and exit.
+/// @todo should clean the connections list
 void error(const char* reason) {
   ERR("[-] Error: %s\n",reason);
   ERR("netsed: exiting.\n");
   exit(2);
 }
 
-
+/// hex digit to parsing the % notation in rules
 char hex[]="0123456789ABCDEF";
 
+/// convert the % notation in rules to plain binary data
+/// @param r rule to update
 void shrink_to_binary(struct rule_s* r) {
   int i;
 
@@ -223,7 +282,11 @@ void shrink_to_binary(struct rule_s* r) {
   }
 }
 
-
+/// Bind and optionally listen to a socket for netsed server port.
+/// @param af      address family.
+/// @param tcp     1 tcp, 0 udp.
+/// @param portstr string representing the port to bind
+///                (will be resolved using getaddrinfo()).
 void bind_and_listen(int af, int tcp, const char *portstr) {
   int ret;
   struct addrinfo hints, *res, *reslist;
@@ -267,9 +330,14 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
     error("Listening socket failed.");
 }
 
+/// buffer for receiving a single packet or datagram
 char buf[MAX_BUF];
+/// buffer containing modified packet or datagram
 char b2[MAX_BUF];
 
+/// Applies the rules to global buffer buf.
+/// @param siz useful size of the data in buf.
+/// @param live TTL state of current connection.
 int sed_the_buffer(int siz, int* live) {
   int i=0,j=0;
   int newsize=0;
@@ -304,9 +372,12 @@ int sed_the_buffer(int siz, int* live) {
 
 
 // prototype this function so that the content is in the same order as in
-// previous read_write_sed function.
+// previous read_write_sed function. (ease patch and diff)
 void b2server_sed(struct tracker_s * conn, ssize_t rd);
 
+/// Receive a packet or datagram from the server, 'sed' it, send it to the 
+/// client.
+/// @param conn connection giving the sockets to use.
 void server2client_sed(struct tracker_s * conn) {
     ssize_t rd;
     rd=read(conn->fsock,buf,sizeof(buf));
@@ -332,6 +403,8 @@ void server2client_sed(struct tracker_s * conn) {
     }
 }
 
+/// Receive a packet from the client, 'sed' it, send it to the server.
+/// @param conn connection giving the sockets to use.
 void client2server_sed(struct tracker_s * conn) {
     ssize_t rd;
     rd=read(conn->csock,buf,sizeof(buf));
@@ -348,6 +421,9 @@ void client2server_sed(struct tracker_s * conn) {
     b2server_sed(conn, rd);
 }
 
+/// Send the content of global buffer b2 to the server as packet or datagram.
+/// @param conn connection giving the sockets to use.
+/// @param rd   size of b2 content.
 void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     if (rd>0) {
       printf("[+] Caught client -> server packet.\n");
@@ -360,6 +436,8 @@ void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     }
 }
 
+/// handle SIGCHILD signal
+/// @toto is this still needed as we fork() no more ???
 void sig_chld(int signo)
 {
   pid_t  pid;
@@ -369,12 +447,14 @@ void sig_chld(int signo)
   return;
 } 
 
+/// handle SIGINT signal for clean exit.
 void sig_int(int signo)
 {
   DBG("[!] user interrupt request (%d)\n",getpid());
   stop = 1;
 }
 
+/// This is main...
 int main(int argc,char* argv[]) {
   int i, ret;
   in_port_t fixedport = 0;
