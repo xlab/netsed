@@ -6,13 +6,47 @@
 ///@mainpage
 ///
 /// This documentation is targeting netsed devloppers, if you are a user
-/// either launch netsed without parameters or read the README file (@link README @endlink).
+/// either launch netsed without parameters or read the README file 
+/// (@link README @endlink).
 ///
 ///@par
 /// - Currently netsed is implemented in a single file: netsed.c
 /// - some TODOs are gathered on the @link todo @endlink page,
 ///   some others are in the TODO file.
 /// .
+
+///@file netsed.c
+///@par Architecture
+/// Netsed is implemented as a select socket dispatcher.
+/// First a main socket server is created (#lsock), each connection to this
+/// socket create a context traked in the tracker_s structure.
+/// Each connection has
+/// - a connected socket (tracker_s::csock) returned by the accept() function
+///   for tcp, or
+/// - a connection socket address (tracker_s::csa) filled by recvfrom for udp.
+/// - a dedicated forwarding socket (tracker_s::fsock) connected to the server.
+/// .
+/// All sockets are added to the select() call and managed by the dispatcher
+/// as follows: 
+/// - When packets are received from the client, the rules are aplied by 
+///   sed_the_buffer() and the packet is send to the server. 
+///   This is the role of client2server_sed() function. It is only used for tcp.
+/// - When packets are received from the server, the rules are aplied by 
+///   sed_the_buffer() and the packet is send to the corresponding client. 
+///   This is the role of server2client_sed() function.
+/// - For udp only, connection from client to netsed are not established
+///   so netsed need to lookup existing #connections to find the corresponding
+///   established link, if any. The lookup is done by comparing tracker_s::csa.
+///   Once found or created, the rules are aplied by sed_the_buffer() and the
+///   packet is send to the server. 
+///   This is the role of b2server_sed() function.
+///
+/// @note For tcp tracker_s::csa is NULL and for udp the tracker_s::csock is
+/// filled with #lsock. This is done in order to share code and avoid 
+/// discriminating between tcp or udp everywhere, sendto are done on 
+/// tracker_s::csock with tracker_s::csa only and the actual value of those
+/// will reflect the needs.
+
 
 ///@page README User documentation
 ///@verbinclude README
