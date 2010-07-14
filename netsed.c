@@ -580,20 +580,29 @@ int main(int argc,char* argv[]) {
 
     int sel;
     fd_set rd_set;
-    struct timeval timeout;
+    struct timeval timeout, *ptimeout;
     int nfds = lsock;
     FD_ZERO(&rd_set);
     FD_SET(lsock,&rd_set);
-    timeout.tv_sec = 1;
+    timeout.tv_sec = UDP_TIMEOUT+1;
     timeout.tv_usec = 0;
+    ptimeout = NULL;
 
     {
       conn = connections;
-      /// @todo process time to adjust timeout
       while(conn != NULL) {
         if(tcp) {
           FD_SET(conn->csock, &rd_set);
           if (nfds < conn->csock) nfds = conn->csock;
+        } else {
+          // adjust timeout to earliest connection end time
+          int remain = UDP_TIMEOUT - (now - conn->time);
+          if (remain < 0) remain = 0;
+          if (timeout.tv_sec > remain) {
+            timeout.tv_sec = remain;
+            // time updated to need to timeout
+            ptimeout = &timeout;
+          }
         }
         FD_SET(conn->fsock, &rd_set);
         if (nfds < conn->fsock) nfds = conn->fsock;
@@ -602,7 +611,7 @@ int main(int argc,char* argv[]) {
       }
     }
 
-    sel=select(nfds+1, &rd_set, (fd_set*)0, (fd_set*)0, &timeout);
+    sel=select(nfds+1, &rd_set, (fd_set*)0, (fd_set*)0, ptimeout);
     time(&now);
     if (stop)
     {
@@ -613,11 +622,10 @@ int main(int argc,char* argv[]) {
       break;
     }
     if (sel == 0) {
-//      DBG("[*] select timeout\n");
-        /// @todo remove this when select timeout is optimized
-        // here we still have to go through the list to expire some udp
-        // connection if they timed out... But no descriptor will be set.
-        if(tcp) continue;
+      DBG("[*] select timeout. now: %d\n", now);
+      // Here we still have to go through the list to expire some udp
+      // connection if they timed out... But no descriptor will be set.
+      // For tcp, select will not timeout.
     }
 
     if (FD_ISSET(lsock, &rd_set)) {
@@ -733,8 +741,8 @@ int main(int argc,char* argv[]) {
         server2client_sed(conn);
       }
       // timeout ? udp only
-      //DBG("[!] connection last time: %d, now: %d\n", conn->time, now);
-      if(!tcp && ((now - conn->time) > UDP_TIMEOUT)) {
+      DBG("[!] connection last time: %d, now: %d\n", conn->time, now);
+      if(!tcp && ((now - conn->time) >= UDP_TIMEOUT)) {
         DBG("[!] connection timeout.\n");
         conn->state = TIMEOUT;
       }
