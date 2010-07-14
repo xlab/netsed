@@ -1,10 +1,12 @@
 unreleased:
   - major architecture rework:
+    - only one process is needed
     - added tracking connection structure
     - all receive sockets are select()ed
-    - only one process is needed
     - udp is implemented
   - improved tests.
+  - added developers documentation in source code (doxygen) 
+
 2010-07-02, netsed 0.02c:
   - added a test suite in test directory
   - catching ctrl-C and closing sockets:

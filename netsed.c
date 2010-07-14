@@ -71,9 +71,6 @@
 
 /// Current version (recovered by Makefile for several release checks)
 #define VERSION "0.02c"
-/// max size for rule arrays
-/// @todo make it dynamic or check actual size...
-#define MAXRULES 50
 /// max size for buffers
 #define MAX_BUF  100000
 
@@ -91,7 +88,7 @@
 /// Timeout for udp 'connections' in seconds 
 #define UDP_TIMEOUT 30
 
-/// rule item.
+/// Rule item.
 struct rule_s {
   /// binary buffer to match.
   char *from;
@@ -127,51 +124,37 @@ struct tracker_s {
   struct sockaddr* csa;
   /// size of #csa
   socklen_t csl;
-  /// connection socket to client
+  /// Connection socket to client
   int csock;
-  /// socket to forward to server
+  /// Socket to forward to server
   int fsock;
-  /// last event time, for udp timeout
+  /// Last event time, for udp timeout
   time_t time;
-  /// connection state
+  /// Connection state
   enum state_e state;
-  /// by connection TTL
+  /// By connection TTL
   int* live;
 
   /// chain it !
   struct tracker_s * n;
 };
 
-/// Helper function to free a tracker_s item.
-/// csa will be freed if needed, sockets will be closed
-/// @param conn pointer to free.
-void freetracker (struct tracker_s * conn)
-{
-  if(conn->csa != NULL) { // udp
-    free(conn->csa);
-  } else { // tcp
-    close(conn->csock);
-  }
-  close(conn->fsock);
-  free(conn);
-}
-
-/// to store current time (just after select returned).
+/// Store current time (just after select returned).
 time_t now;
-/// listening socket.
+/// Listening socket.
 int lsock;
-/// number of rules.
+/// Number of rules.
 int rules;
-/// all rules.
-struct rule_s rule[MAXRULES];
+/// Array of all rules.
+struct rule_s *rule;
 /// TTL part of the rule as a flat array to be able to copy it 
 /// in tracker_s::live for each connections.
-int rule_live[MAXRULES];
+int *rule_live;
 
-/// list of connections.
+/// List of connections.
 struct tracker_s * connections = NULL;
 
-/// true when SIGINT signal was received.
+/// True when SIGINT signal was received.
 volatile int stop=0;
 
 /// Display an error message followed by usage information.
@@ -202,6 +185,33 @@ void usage_hints(const char* why) {
   exit(1);
 }
 
+/// Helper function to free a tracker_s item.
+/// csa will be freed if needed, sockets will be closed
+/// @param conn pointer to free.
+void freetracker (struct tracker_s * conn)
+{
+  if(conn->csa != NULL) { // udp
+    free(conn->csa);
+  } else { // tcp
+    close(conn->csock);
+  }
+  close(conn->fsock);
+  free(conn);
+}
+
+/// Close all sockets
+/// to use before exit.
+void clean_socks(void)
+{
+  close(lsock);
+  // close all tracker
+  while(connections != NULL) {
+    struct tracker_s * conn = connections;
+    connections = conn->n;
+    freetracker(conn);
+  }
+}
+
 #ifdef __GNUC__
 // avoid gcc from inlining those two function when optimizing, as otherwise
 // the function whould break strict-aliasing rules by dereferencing pointers...
@@ -209,7 +219,7 @@ in_port_t get_port(struct sockaddr *sa) __attribute__ ((noinline));
 void set_port(struct sockaddr *sa, in_port_t port) __attribute__ ((noinline));
 #endif
 
-/// extract the port information from a sockaddr for both IPv4 and IPv6.
+/// Extract the port information from a sockaddr for both IPv4 and IPv6.
 /// @param sa sockaddr to get port from
 in_port_t get_port(struct sockaddr *sa) {
   switch (sa->sa_family) {
@@ -222,7 +232,7 @@ in_port_t get_port(struct sockaddr *sa) {
   }
 } /* get_port(struct sockaddr *) */
 
-/// set the port information in a sockaddr for both IPv4 and IPv6.
+/// Set the port information in a sockaddr for both IPv4 and IPv6.
 /// @param sa   sockaddr to update
 /// @param port port value
 void set_port(struct sockaddr *sa, in_port_t port) {
@@ -238,17 +248,17 @@ void set_port(struct sockaddr *sa, in_port_t port) {
 } /* set_port(struct sockaddr *, in_port_t) */
 
 /// Display an error message and exit.
-/// @todo should clean the connections list
 void error(const char* reason) {
   ERR("[-] Error: %s\n",reason);
   ERR("netsed: exiting.\n");
+  clean_socks();
   exit(2);
 }
 
-/// hex digit to parsing the % notation in rules
+/// Hex digit to parsing the % notation in rules
 char hex[]="0123456789ABCDEF";
 
-/// convert the % notation in rules to plain binary data
+/// Convert the % notation in rules to plain binary data
 /// @param r rule to update
 void shrink_to_binary(struct rule_s* r) {
   int i;
@@ -364,9 +374,9 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
     error("Listening socket failed.");
 }
 
-/// buffer for receiving a single packet or datagram
+/// Buffer for receiving a single packet or datagram
 char buf[MAX_BUF];
-/// buffer containing modified packet or datagram
+/// Buffer containing modified packet or datagram
 char b2[MAX_BUF];
 
 /// Applies the rules to global buffer buf.
@@ -405,7 +415,7 @@ int sed_the_buffer(int siz, int* live) {
 }
 
 
-// prototype this function so that the content is in the same order as in
+// Prototype this function so that the content is in the same order as in
 // previous read_write_sed function. (ease patch and diff)
 void b2server_sed(struct tracker_s * conn, ssize_t rd);
 
@@ -470,8 +480,8 @@ void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     }
 }
 
-/// handle SIGCHILD signal
-/// @toto is this still needed as we fork() no more ???
+/// Handle SIGCHILD signal
+/// @todo is this still needed as we fork() no more ???
 void sig_chld(int signo)
 {
   pid_t  pid;
@@ -481,7 +491,7 @@ void sig_chld(int signo)
   return;
 } 
 
-/// handle SIGINT signal for clean exit.
+/// Handle SIGINT signal for clean exit.
 void sig_int(int signo)
 {
   DBG("[!] user interrupt request (%d)\n",getpid());
@@ -504,6 +514,9 @@ int main(int argc,char* argv[]) {
   if (argc<6) usage_hints("not enough parameters");
   if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect procotol");
   tcp = strncasecmp(argv[1], "udp", 3);
+  // allocate rule arrays, rule number is number of param after 5
+  rule=malloc((argc-5)*sizeof(struct rule_s));
+  rule_live=malloc((argc-5)*sizeof(int));
   // parse rules
   for (i=5;i<argc;i++) {
     char *fs=0, *ts=0, *cs=0;
@@ -563,7 +576,7 @@ int main(int argc,char* argv[]) {
   printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
 
   signal(SIGPIPE,SIG_IGN);
-  // TODO: use sigaction
+  /// @todo use sigaction
   signal(SIGCHLD,sig_chld);
   signal(SIGINT,sig_int);
 
@@ -585,7 +598,7 @@ int main(int argc,char* argv[]) {
 
     {
       conn = connections;
-      // TODO: process time to adjust timeout
+      /// @todo process time to adjust timeout
       while(conn != NULL) {
         if(tcp) {
           FD_SET(conn->csock, &rd_set);
@@ -745,14 +758,8 @@ int main(int argc,char* argv[]) {
       }
     }
   }
-  close(lsock);
-  // close all tracker
-  while(connections != NULL) {
-    conn = connections;
-    connections = conn->n;
-    freetracker(conn);
-  }
 
+  clean_socks();
   exit(0);
 }
 
