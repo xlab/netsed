@@ -5,8 +5,8 @@
 
 ///@mainpage
 ///
-/// This documentation is targeting netsed devloppers, if you are a user
-/// either launch netsed without parameters or read the README file 
+/// This documentation is targeting netsed developers, if you are a user
+/// either launch netsed without parameters or read the README file
 /// (@link README @endlink).
 ///
 ///@par
@@ -16,40 +16,53 @@
 /// .
 
 ///@file netsed.c
+///@brief netsed is implemented in this single file.
 ///@par Architecture
 /// Netsed is implemented as a select socket dispatcher.
 /// First a main socket server is created (#lsock), each connection to this
-/// socket create a context traked in the tracker_s structure.
+/// socket create a context stored in the tracker_s structure and added to
+/// the #connections list.
 /// Each connection has
 /// - a connected socket (tracker_s::csock) returned by the accept() function
 ///   for tcp, or
-/// - a connection socket address (tracker_s::csa) filled by recvfrom for udp.
+/// - a connection socket address (tracker_s::csa) filled by recvfrom() for udp.
 /// - a dedicated forwarding socket (tracker_s::fsock) connected to the server.
 /// .
 /// All sockets are added to the select() call and managed by the dispatcher
-/// as follows: 
-/// - When packets are received from the client, the rules are aplied by 
-///   sed_the_buffer() and the packet is send to the server. 
+/// as follows:
+/// - When packets are received from the client, the rules are applied by
+///   sed_the_buffer() and the packet is send to the server.
 ///   This is the role of client2server_sed() function. It is only used for tcp.
-/// - When packets are received from the server, the rules are aplied by 
-///   sed_the_buffer() and the packet is send to the corresponding client. 
+/// - When packets are received from the server, the rules are applied by
+///   sed_the_buffer() and the packet is send to the corresponding client.
 ///   This is the role of server2client_sed() function.
 /// - For udp only, connection from client to netsed are not established
 ///   so netsed need to lookup existing #connections to find the corresponding
 ///   established link, if any. The lookup is done by comparing tracker_s::csa.
-///   Once found or created, the rules are aplied by sed_the_buffer() and the
-///   packet is send to the server. 
+///   Once the connection is found or created, the rules are applied
+///   by sed_the_buffer() and the packet is send to the server.
 ///   This is the role of b2server_sed() function.
-///
+/// .
 /// @note For tcp tracker_s::csa is NULL and for udp the tracker_s::csock is
-/// filled with #lsock. This is done in order to share code and avoid 
-/// discriminating between tcp or udp everywhere, sendto are done on 
+/// filled with #lsock. This is done in order to share code and avoid
+/// discriminating between tcp or udp everywhere, sendto are done on
 /// tracker_s::csock with tracker_s::csa only and the actual value of those
 /// will reflect the needs.
-
+///
+/// @note I'm saying packets and connections, but for udp these are actually
+/// datagrams and pseudo-connections. The pseudo-connection is defined by the
+/// fact that the client uses the same address and port (same tracker_s::csa)
+/// with a life time defined by #UDP_TIMEOUT to clean the connection list.
+///
+/// @todo Implements features listed in TODO file.
 
 ///@page README User documentation
+/// The README file:
 ///@verbinclude README
+
+///@page todo The TODO list
+/// The TODO file:
+///@verbinclude TODO
 
 #include <stdio.h>
 #include <unistd.h>
@@ -77,15 +90,17 @@
 /// printf to stderr
 #define ERR(x...) fprintf(stderr,x)
 
-// uncomment to add a lot of debug information
+// Uncomment to add a lot of debug information.
 //#define DEBUG
 #ifdef DEBUG
+/// printf for debug information
 #define DBG(x...) printf(x)
 #else
+/// Disabled debug prints.
 #define DBG(x...)
 #endif
 
-/// Timeout for udp 'connections' in seconds 
+/// Timeout for udp 'connections' in seconds
 #define UDP_TIMEOUT 30
 
 /// Rule item.
@@ -111,7 +126,7 @@ enum state_e {
   /// tcp accepted connection or udp 'connection' with a response from server.
   ESTABLISHED,
   /// tcp or udp disconnected (detected by an error on read or send).
-  /// @note all values after and including #DISCONNECTED are considered as 
+  /// @note all values after and including #DISCONNECTED are considered as
   /// error and the connection will be discarded.
   DISCONNECTED,
   /// udp timeout expired.
@@ -147,7 +162,7 @@ int lsock;
 int rules;
 /// Array of all rules.
 struct rule_s *rule;
-/// TTL part of the rule as a flat array to be able to copy it 
+/// TTL part of the rule as a flat array to be able to copy it
 /// in tracker_s::live for each connections.
 int *rule_live;
 
@@ -179,7 +194,7 @@ void usage_hints(const char* why) {
   ERR("  's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'\n");
   ERR("  's/andrew/mike%%00%%00' - replace 'andrew' with 'mike\\x00\\x00'\n");
   ERR("                          (manually padding to keep original size)\n");
-  ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurence of '%%' with '/'\n\n");
+  ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurrence of '%%' with '/'\n\n");
   ERR("Rules are not active across packet boundaries, and they are evaluated\n");
   ERR("from first to last, not yet expired rule, as stated on the command line.\n");
   exit(1);
@@ -214,7 +229,7 @@ void clean_socks(void)
 
 #ifdef __GNUC__
 // avoid gcc from inlining those two function when optimizing, as otherwise
-// the function whould break strict-aliasing rules by dereferencing pointers...
+// the function would break strict-aliasing rules by dereferencing pointers...
 in_port_t get_port(struct sockaddr *sa) __attribute__ ((noinline));
 void set_port(struct sockaddr *sa, in_port_t port) __attribute__ ((noinline));
 #endif
@@ -419,7 +434,7 @@ int sed_the_buffer(int siz, int* live) {
 // previous read_write_sed function. (ease patch and diff)
 void b2server_sed(struct tracker_s * conn, ssize_t rd);
 
-/// Receive a packet or datagram from the server, 'sed' it, send it to the 
+/// Receive a packet or datagram from the server, 'sed' it, send it to the
 /// client.
 /// @param conn connection giving the sockets to use.
 void server2client_sed(struct tracker_s * conn) {
@@ -498,12 +513,12 @@ int main(int argc,char* argv[]) {
 
   memset(&fixedhost, '\0', sizeof(fixedhost));
   printf("netsed " VERSION " by Julien VdG <julien@silicone.homelinux.org>\n"
-         "     based on 0.01c from Michal Zalewski <lcamtuf@ids.pl>\n");
+         "      based on 0.01c from Michal Zalewski <lcamtuf@ids.pl>\n");
   setbuffer(stdout,NULL,0);
   if (argc<6) usage_hints("not enough parameters");
-  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect procotol");
+  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect protocol");
   tcp = strncasecmp(argv[1], "udp", 3);
-  // allocate rule arrays, rule number is number of param after 5
+  // allocate rule arrays, rule number is number of params after 5
   rule=malloc((argc-5)*sizeof(struct rule_s));
   rule_live=malloc((argc-5)*sizeof(int));
   // parse rules
@@ -524,7 +539,7 @@ int main(int argc,char* argv[]) {
     if (cs) rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
     shrink_to_binary(&rule[rules]);
 //    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
-    rules++;    
+    rules++;
   }
 
   printf("[+] Loaded %d rule%s...\n", rules, (rules > 1) ? "s" : "");
@@ -679,7 +694,7 @@ int main(int argc,char* argv[]) {
           conn->csa = malloc(l);
           if(NULL == conn->csa) error("netsed: unable to malloc() connection tracker sockaddr struct");
           memcpy(conn->csa, &s, l);
-          conn->csl = l;          
+          conn->csl = l;
           conn->state = UNREPLIED;
         }
         conn->csock = csock;
@@ -698,7 +713,7 @@ int main(int argc,char* argv[]) {
 
         memcpy(&conho, &s, sizeof(conho));
 
-        if (fixedport) conpo=fixedport; 
+        if (fixedport) conpo=fixedport;
         if (fixedhost.ss_family)
           memcpy(&conho, &fixedhost, sizeof(conho));
 
