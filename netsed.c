@@ -480,17 +480,6 @@ void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     }
 }
 
-/// Handle SIGCHILD signal
-/// @todo is this still needed as we fork() no more ???
-void sig_chld(int signo)
-{
-  pid_t  pid;
-  int    stat;
-  while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0)
-    printf("[!] child %d terminated\n", pid);
-  return;
-} 
-
 /// Handle SIGINT signal for clean exit.
 void sig_int(int signo)
 {
@@ -575,10 +564,12 @@ int main(int argc,char* argv[]) {
 
   printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
 
-  signal(SIGPIPE,SIG_IGN);
-  /// @todo use sigaction
-  signal(SIGCHLD,sig_chld);
-  signal(SIGINT,sig_int);
+  signal(SIGPIPE, SIG_IGN);
+  struct sigaction sa;
+  sa.sa_flags = 0;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_handler = sig_int;
+  if (sigaction(SIGINT, &sa, NULL) == -1) error("netsed: sigaction() failed");
 
   while (!stop) {
     struct sockaddr_storage s;
@@ -618,14 +609,15 @@ int main(int argc,char* argv[]) {
       break;
     }
     if (sel < 0) {
-      if (errno == EINTR)
-        continue; // we will get some SIGCHLD
       DBG("[!] select fail! %s\n", strerror(errno));
       break;
     }
     if (sel == 0) {
 //      DBG("[*] select timeout\n");
-//      continue; // select timeout
+        /// @todo remove this when select timeout is optimized
+        // here we still have to go through the list to expire some udp
+        // connection if they timed out... But no descriptor will be set.
+        if(tcp) continue;
     }
 
     if (FD_ISSET(lsock, &rd_set)) {
