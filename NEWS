@@ -1,4 +1,4 @@
-unreleased:
+2010-07-15; netsed 1.00a:
   - major architecture rework:
     - only one process is needed
     - added tracking connection structure

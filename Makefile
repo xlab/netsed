@@ -12,8 +12,8 @@ doc:
 
 check_version:
 	@echo netsed $(VERSION)
-	@grep $(VERSION) NEWS>/dev/null #version should appear in NEWS file
-	@grep $(VERSION) README>/dev/null #same for README
+	@grep "netsed $(VERSION)" NEWS>/dev/null ||(echo "version should appear in NEWS file"; exit 1)
+	@grep "netsed $(VERSION)" README>/dev/null ||(echo "version should appear in README file"; exit 1)
 
 .PHONY: test
 

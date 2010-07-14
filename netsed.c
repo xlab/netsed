@@ -83,7 +83,7 @@
 #include <time.h>
 
 /// Current version (recovered by Makefile for several release checks)
-#define VERSION "0.02c"
+#define VERSION "1.00a"
 /// max size for buffers
 #define MAX_BUF  100000
 
