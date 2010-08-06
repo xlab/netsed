@@ -20,6 +20,9 @@ check_version:
 test: netsed
 	ruby test/ts_full.rb
 
+test/doc:
+	cd test;LANG=C rdoc -a --inline-source -d *.rb
+
 release_tag: check_version
 	git tag $(VERSION)
 

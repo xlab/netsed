@@ -4,6 +4,8 @@
   - Improve feature coverage
   - investigate why UDP IPv6 tests fail
 - test transparent proxy mode again
+- When udp datagram is send and nothing gets it, an ICMP response (closed port or something similar) arrives to netsed but netsed does not forward that to the client. Is this needed...
+- Improve and update user documentation (and publish it on web ?)
 - implementing all sed scripting is not the plan, but :
   - implement some regex support (most of sed s// command without all the scripting that sed allows). man 3 regex
   - allowing the rule to be processed externally by a filter program (so the real sed can be used). check with popen.
