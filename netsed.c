@@ -82,6 +82,16 @@
 #include <netdb.h>
 #include <time.h>
 
+/// Define for transparent proxy with linux netfilter.
+/// Else use getsockname() supposing the socket receive the original
+/// destination information directly.
+#define LINUX_NETFILTER
+
+#ifdef LINUX_NETFILTER
+#include <limits.h>
+#include <linux/netfilter_ipv4.h>
+#endif
+
 /// Current version (recovered by Makefile for several release checks)
 #define VERSION "1.00a"
 /// max size for buffers
@@ -261,6 +271,21 @@ void set_port(struct sockaddr *sa, in_port_t port) {
       break;
   }
 } /* set_port(struct sockaddr *, in_port_t) */
+
+/// Detect if address in the addr_any value for both IPv4 and IPv6.
+/// @param sa sockaddr to test
+/// @return true if sa in addr_any
+int is_addr_any(struct sockaddr *sa) {
+  switch (sa->sa_family) {
+    case AF_INET:
+      return (((struct sockaddr_in *) sa)->sin_addr.s_addr == htonl(INADDR_ANY));
+    case AF_INET6:
+      return !memcmp(&((struct sockaddr_in6 *) sa)->sin6_addr, &in6addr_any, sizeof(in6addr_any));
+    default:
+      return 0;
+  }
+} /* is_addr_any(struct sockaddr *) */
+
 
 /// Display an error message and exit.
 void error(const char* reason) {
@@ -504,7 +529,7 @@ void sig_int(int signo)
 
 /// This is main...
 int main(int argc,char* argv[]) {
-  int i, ret;
+  int i, ret, af;
   in_port_t fixedport = 0;
   struct sockaddr_storage fixedhost;
   struct addrinfo hints, *res, *reslist;
@@ -562,7 +587,8 @@ int main(int argc,char* argv[]) {
     /* Has successfully built a socket for this address family. */
     /* Record the address structure and the port. */
     fixedport = get_port(res->ai_addr);
-    memcpy(&fixedhost, res->ai_addr, res->ai_addrlen);
+    if (!is_addr_any(res->ai_addr))
+      memcpy(&fixedhost, res->ai_addr, res->ai_addrlen);
     close(sd);
     break;
   }
@@ -572,6 +598,10 @@ int main(int argc,char* argv[]) {
 
   if (fixedhost.ss_family && fixedport)
     printf("[+] Using fixed forwarding to %s,%s.\n",argv[3],argv[4]);
+  else if (fixedport)
+    printf("[+] Using dynamic (transparent proxy) forwarding with fixed port %s.\n",argv[4]);
+  else if (fixedhost.ss_family)
+    printf("[+] Using dynamic (transparent proxy) forwarding with fixed addr %s.\n",argv[3]);
   else
     printf("[+] Using dynamic (transparent proxy) forwarding.\n");
 
@@ -705,7 +735,13 @@ int main(int argc,char* argv[]) {
         memcpy(conn->live, rule_live, rules*sizeof(int));
 
         l = sizeof(s);
+#ifndef LINUX_NETFILTER
+        // was OK for linux 2.2 nat
         getsockname(csock,(struct sockaddr*)&s,&l);
+#else
+        // for linux 2.4 and later
+        getsockopt(csock, SOL_IP, SO_ORIGINAL_DST,(struct sockaddr*)&s,&l);
+#endif
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
         printf(" to %s,%s\n", ipstr, portstr);
@@ -717,15 +753,13 @@ int main(int argc,char* argv[]) {
         if (fixedhost.ss_family)
           memcpy(&conho, &fixedhost, sizeof(conho));
 
+        // forward to addr
         memcpy(&s, &conho, sizeof(s));
+        set_port((struct sockaddr *) &s, conpo);
         getnameinfo((struct sockaddr *) &s, l, ipstr, sizeof(ipstr),
                     portstr, sizeof(portstr), NI_NUMERICHOST | NI_NUMERICSERV);
         printf("[*] Forwarding connection to %s,%s\n", ipstr, portstr);
 
-        // forward to addr
-        memcpy(&s, &conho, sizeof(s));
-        set_port((struct sockaddr *) &s, conpo);
-        l=sizeof(s);
         // connect will bind with some dynamic addr/port
         conn->fsock = socket(s.ss_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
 

@@ -93,6 +93,16 @@ forwarded to the destination:
 For more instructions on rules syntax and transparent proxies in general,
 refer your OS documentation.
 
+Update for linux 2.4 and later with netfilter:
+
+First you need to make sure LINUX_NETFILTER is defined in source code 
+before compiling.
+Then the command are as follows:
+iptables -t nat -D PREROUTING -s source_ip -d destination_ip -p protocol --dport port -j REDIRECT --to lport
+
+So the previous example becomes:
+iptables -t nat -D PREROUTING -s 1.2.3.4 -d 5.6.0.0/16 -p tcp --dport 12345 -j REDIRECT --to 10101
+
   Setting up netsed - practice
   ----------------------------
 

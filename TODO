@@ -3,7 +3,6 @@
 - tests:
   - Improve feature coverage
   - investigate why UDP IPv6 tests fail
-- test transparent proxy mode again
 - When udp datagram is send and nothing gets it, an ICMP response (closed port or something similar) arrives to netsed but netsed does not forward that to the client. Is this needed...
 - Improve and update user documentation (and publish it on web ?)
 - implementing all sed scripting is not the plan, but :
