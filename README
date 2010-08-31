@@ -124,9 +124,10 @@ General replacement rules syntax is:
 
 This will replace all occurrences of pat1 with pat2 in matching packets.
 An additional parameter (count) can be used to expire rule after 'count'
-successful substitutions. Eight-bit characters, including NULL and '/', can
-be passed using HTTP-alike hex escape sequences (eg. %0a%0d). Single '%'
-can be reached by using '%%'. Examples:
+successful substitutions for a given connection. Eight-bit characters, 
+including NULL and '/', can be passed using HTTP-alike hex escape 
+sequences (eg. %0a%0d). Single '%' can be reached by using '%%'.
+Examples:
 
   's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)
   's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'

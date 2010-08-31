@@ -197,8 +197,9 @@ void usage_hints(const char* why) {
   ERR("General syntax of replacement rules: s/pat1/pat2[/expire]\n\n");
   ERR("This will replace all occurrences of pat1 with pat2 in any matching packet.\n");
   ERR("An additional parameter (count) can be used to expire a rule after 'count'\n");
-  ERR("successful substitutions. Eight-bit characters, including NULL and '/',\n");
-  ERR("can be passed using HTTP-like hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
+  ERR("successful substitutions for a given connection. Eight-bit characters,\n");
+  ERR("including NULL and '/', can be passed using HTTP-like hex escape\n");
+  ERR("sequences (e.g. CRLF as %%0a%%0d).\n");
   ERR("A match on '%%' can be achieved by specifying '%%%%'. Examples:\n\n");
   ERR("  's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)\n");
   ERR("  's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'\n");
@@ -529,7 +530,7 @@ void sig_int(int signo)
 
 /// This is main...
 int main(int argc,char* argv[]) {
-  int i, ret, af;
+  int i, ret;
   in_port_t fixedport = 0;
   struct sockaddr_storage fixedhost;
   struct addrinfo hints, *res, *reslist;
