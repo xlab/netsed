@@ -93,7 +93,7 @@
 #endif
 
 /// Current version (recovered by Makefile for several release checks)
-#define VERSION "1.00a"
+#define VERSION "1.00b"
 /// max size for buffers
 #define MAX_BUF  100000
 

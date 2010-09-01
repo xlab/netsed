@@ -1,3 +1,6 @@
+2010-09-02; netsed 1.00b:
+  - Transparent proxy mode for netfilter (linux 2.4 and 2.6)
+
 2010-07-15; netsed 1.00a:
   - major architecture rework:
     - only one process is needed
