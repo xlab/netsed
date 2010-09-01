@@ -24,10 +24,15 @@ test/doc:
 	cd test;LANG=C rdoc -a --inline-source -d *.rb
 
 release_tag: check_version
+	@if (git status --porcelain | grep '^ M') then echo "you have modified files, cannot tag"; exit 2; else exit 0; fi
 	git tag $(VERSION)
 
-release_archive: clean check_version
+quick_archive: clean check_version
 	tar cfvz ../netsed-$(VERSION).tar.gz *
+
+release_archive:
+	@git show-ref --tags $(VERSION) > /dev/null ||(echo "to release first create a tag with the current version $(VERSION)"; exit 3)
+	fakeroot git archive --format=tar --prefix=netsed-$(VERSION)/ $(VERSION) | gzip > ../netsed-$(VERSION).tar.gz
 
 release: release_archive
 	@echo "netsed-$(VERSION) release" > ../netsed-$(VERSION).txt
