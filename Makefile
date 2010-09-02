@@ -41,6 +41,6 @@ release: release_archive
 	@cd .. && md5sum netsed-$(VERSION).tar.gz >> netsed-$(VERSION).txt
 	@cd .. && sha1sum netsed-$(VERSION).tar.gz >> netsed-$(VERSION).txt
 	@cd .. && sha256sum netsed-$(VERSION).tar.gz >> netsed-$(VERSION).txt
+	@cd .. && gpg -o netsed-$(VERSION).sig --clearsign netsed-$(VERSION).txt
 
-# then: gpg --clearsign netsed-$(VERSION).txt -o netsed-$(VERSION).sig
 # and upload netsed-$(VERSION).tar.gz netsed-$(VERSION).sig
