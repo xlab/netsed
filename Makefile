@@ -1,4 +1,4 @@
-CFLAGS := -Wall -fomit-frame-pointer -O9
+CFLAGS += -Wall -fomit-frame-pointer
 
 VERSION := $(shell grep '\#define VERSION' netsed.c|sed 's/\#define VERSION "\(.*\)"/\1/')
 
