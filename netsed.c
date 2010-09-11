@@ -85,7 +85,9 @@
 /// Define for transparent proxy with linux netfilter.
 /// Else use getsockname() supposing the socket receive the original
 /// destination information directly.
+#if __linux__
 #define LINUX_NETFILTER
+#endif
 
 #ifdef LINUX_NETFILTER
 #include <limits.h>
