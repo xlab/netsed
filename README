@@ -1,9 +1,10 @@
 
-  netsed 1.00b                          (C) Michal Zalewski <lcamtuf@ids.pl>
-                                  Julien VdG <julien@silicone.homelinux.org>
+  netsed 1.00b          (C) 2010  Julien VdG <julien@silicone.homelinux.org>
   --------------------------------------------------------------------------
 
-  This work is based on the original netsed 0.01c by Michal Zalewski.
+  This work is based on the original netsed:
+      netsed 0.01c      (C) 2002  Michal Zalewski <lcamtuf@ids.pl>
+
   Please contact Julien VdG <julien@silicone.homelinux.org> if you encounter
   any problems with this version.
   The changes compared to version 0.01c are related in the NEWS file.
