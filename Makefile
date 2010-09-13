@@ -1,8 +1,14 @@
 CFLAGS += -Wall -fomit-frame-pointer
+PREFIX ?= /usr/local
+
 
 VERSION := $(shell grep '\#define VERSION' netsed.c|sed 's/\#define VERSION "\(.*\)"/\1/')
 
 all: netsed
+
+install: netsed
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 netsed $(DESTDIR)$(PREFIX)/bin/
 
 clean:
 	rm -f netsed core *.o netsed.tgz
