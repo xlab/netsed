@@ -588,7 +588,8 @@ int main(int argc,char* argv[]) {
     if (cs) { *cs=0; cs++; }
     rule[rules].forig=fs;
     rule[rules].torig=ts;
-    if (cs) rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
+    if (cs && *cs) /* Only non-trivial quantifiers count. */
+      rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
     shrink_to_binary(&rule[rules]);
 //    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
     rules++;
