@@ -419,6 +419,11 @@ void bind_and_listen(int af, int tcp, const char *portstr) {
       continue;
     setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     //fcntl(lsock,F_SETFL,O_NONBLOCK);
+    /* Make our best to decide on dual-stacked listener. */
+    one = (af == 0) ? 0 /* AF_UNSPEC given */ : 1; /* Preconditioned addr */
+    if (res->ai_family == AF_INET6)
+      if (setsockopt(lsock, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)))
+        printf("    Failed to unset IPV6_V6ONLY: %s.\n", strerror(errno));
     if (bind(lsock, res->ai_addr, res->ai_addrlen) < 0) {
       ERR("bind(): %s", strerror(errno));
       close(lsock);
