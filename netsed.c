@@ -88,6 +88,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /// The TODO file:
 ///@verbinclude TODO
 
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -106,16 +107,22 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <netdb.h>
 #include <time.h>
 
+#ifdef __linux__
 /// Define for transparent proxy with linux netfilter.
 /// Else use getsockname() supposing the socket receive the original
 /// destination information directly.
-#if __linux__
 #define LINUX_NETFILTER
 #endif
 
 #ifdef LINUX_NETFILTER
 #include <limits.h>
 #include <linux/netfilter_ipv4.h>
+#endif
+
+/// Define to use getopt_long: GNU extension, should check _GNU_SOURCE
+#define PARSE_LONG_OPT
+#ifdef PARSE_LONG_OPT
+#include <getopt.h>
 #endif
 
 /// Current version (recovered by Makefile for several release checks)
@@ -231,8 +238,14 @@ volatile int stop=0;
 void usage_hints(const char* why) {
   ERR("Error: %s\n\n",why);
   ERR("Usage: netsed [option] proto lport rhost rport rule1 [ rule2 ... ]\n\n");
+#ifdef PARSE_LONG_OPT
+  ERR("  options - can be --ipv4 or -4 to force address resolution in IPv4,\n");
+  ERR("            --ipv6 or -6 to force address resolution in IPv6,\n");
+  ERR("            --ipany to resolve the address in either IPv4 or IPv6.\n");
+#else
   ERR("  options - can be nothing, -4 to force address resolution in IPv4\n");
   ERR("            or -6 to force address resolution in IPv6.\n");
+#endif
   ERR("  proto   - protocol specification (tcp or udp)\n");
   ERR("  lport   - local port to listen on (see README for transparent\n");
   ERR("            traffic intercepting on some systems)\n");
@@ -420,9 +433,23 @@ void shrink_to_binary(struct rule_s* r) {
 void parse_params(int argc,char* argv[]) {
   int i;
 
-  // parse options
-  while ((i = getopt(argc, argv, "46")) != -1) {
+  // parse options, GNU allows us to use long options
+#ifdef PARSE_LONG_OPT
+  static struct option long_options[] = {
+    {"ipv4", 0, 0, '4'},
+    {"ipv6", 0, 0, '6'},
+    {"ipany", 0, &family, AF_UNSPEC},
+    {0, 0, 0, 0}
+  };
+
+  while ((i = getopt_long(argc, argv, "46", long_options, NULL)) != -1)
+#else
+  while ((i = getopt(argc, argv, "46")) != -1)
+#endif
+  {
     switch(i) {
+    case 0: // long option
+      break;
     case '4':
       family = AF_INET;
       break;
