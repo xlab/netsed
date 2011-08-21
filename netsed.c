@@ -192,8 +192,23 @@ struct tracker_s {
 
 /// Store current time (just after select returned).
 time_t now;
+
 /// Listening socket.
 int lsock;
+
+// Command line parameters are parsed to the following global variables.
+
+/// TCP or UDP.
+int tcp;
+
+/// Local Port.
+char* lport;
+
+/// Remote Host.
+char* rhost;
+/// Remote Port.
+char* rport;
+
 /// Number of rules.
 int rules;
 /// Array of all rules.
@@ -236,6 +251,7 @@ void usage_hints(const char* why) {
   ERR("from first to last, not yet expired rule, as stated on the command line.\n");
   exit(1);
 }
+
 
 /// Helper function to free a tracker_s item.
 /// csa will be freed if needed, sockets will be closed
@@ -391,6 +407,54 @@ void shrink_to_binary(struct rule_s* r) {
       r->ts++;
     }
   }
+}
+
+/// parse the command line parameters
+/// @param argc number of arguments
+/// @param argv array of string parameters
+void parse_params(int argc,char* argv[]) {
+  int i;
+
+  if (argc<6) usage_hints("not enough parameters");
+
+  // protocole
+  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect protocol");
+  tcp = strncasecmp(argv[1], "udp", 3);
+
+  // local port
+  lport = argv[2];
+
+  // remote host & port
+  rhost = argv[3];
+  rport = argv[4];
+
+  // allocate rule arrays, rule number is number of params after 5
+  rule=malloc((argc-5)*sizeof(struct rule_s));
+  rule_live=malloc((argc-5)*sizeof(int));
+  // parse rules
+  for (i=5;i<argc;i++) {
+    char *fs=0, *ts=0, *cs=0;
+    printf("[*] Parsing rule %s...\n",argv[i]);
+    fs=strchr(argv[i],'/');
+    if (!fs) error("missing first '/' in rule");
+    fs++;
+    ts=strchr(fs,'/');
+    if (!ts) error("missing second '/' in rule");
+    *ts=0;
+    ts++;
+    cs=strchr(ts,'/');
+    if (cs) { *cs=0; cs++; }
+    rule[rules].forig=fs;
+    rule[rules].torig=ts;
+    if (cs && *cs) /* Only non-trivial quantifiers count. */
+      rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
+    shrink_to_binary(&rule[rules]);
+//    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
+    rules++;
+  }
+
+  printf("[+] Loaded %d rule%s...\n", rules, (rules > 1) ? "s" : "");
+
 }
 
 /// Bind and optionally listen to a socket for netsed server port.
@@ -561,53 +625,25 @@ void sig_int(int signo)
 
 /// This is main...
 int main(int argc,char* argv[]) {
-  int i, ret;
+  int ret;
   in_port_t fixedport = 0;
   struct sockaddr_storage fixedhost;
   struct addrinfo hints, *res, *reslist;
-  int tcp;
   struct tracker_s * conn;
 
   memset(&fixedhost, '\0', sizeof(fixedhost));
   printf("netsed " VERSION " by Julien VdG <julien@silicone.homelinux.org>\n"
          "      based on 0.01c from Michal Zalewski <lcamtuf@ids.pl>\n");
   setbuffer(stdout,NULL,0);
-  if (argc<6) usage_hints("not enough parameters");
-  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect protocol");
-  tcp = strncasecmp(argv[1], "udp", 3);
-  // allocate rule arrays, rule number is number of params after 5
-  rule=malloc((argc-5)*sizeof(struct rule_s));
-  rule_live=malloc((argc-5)*sizeof(int));
-  // parse rules
-  for (i=5;i<argc;i++) {
-    char *fs=0, *ts=0, *cs=0;
-    printf("[*] Parsing rule %s...\n",argv[i]);
-    fs=strchr(argv[i],'/');
-    if (!fs) error("missing first '/' in rule");
-    fs++;
-    ts=strchr(fs,'/');
-    if (!ts) error("missing second '/' in rule");
-    *ts=0;
-    ts++;
-    cs=strchr(ts,'/');
-    if (cs) { *cs=0; cs++; }
-    rule[rules].forig=fs;
-    rule[rules].torig=ts;
-    if (cs && *cs) /* Only non-trivial quantifiers count. */
-      rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
-    shrink_to_binary(&rule[rules]);
-//    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
-    rules++;
-  }
 
-  printf("[+] Loaded %d rule%s...\n", rules, (rules > 1) ? "s" : "");
+  parse_params(argc, argv);
 
   memset(&hints, '\0', sizeof(hints));
   hints.ai_family = AF_UNSPEC;
   hints.ai_flags = AI_CANONNAME;
   hints.ai_socktype = tcp ? SOCK_STREAM : SOCK_DGRAM;
 
-  if ((ret = getaddrinfo(argv[3], argv[4], &hints, &reslist))) {
+  if ((ret = getaddrinfo(rhost, rport, &hints, &reslist))) {
     ERR("getaddrinfo(): %s\n", gai_strerror(ret));
     error("Impossible to resolve remote address or port.");
   }
@@ -630,17 +666,17 @@ int main(int argc,char* argv[]) {
     error("Failed in resolving remote host.");
 
   if (fixedhost.ss_family && fixedport)
-    printf("[+] Using fixed forwarding to %s,%s.\n",argv[3],argv[4]);
+    printf("[+] Using fixed forwarding to %s,%s.\n",rhost,rport);
   else if (fixedport)
-    printf("[+] Using dynamic (transparent proxy) forwarding with fixed port %s.\n",argv[4]);
+    printf("[+] Using dynamic (transparent proxy) forwarding with fixed port %s.\n",rport);
   else if (fixedhost.ss_family)
-    printf("[+] Using dynamic (transparent proxy) forwarding with fixed addr %s.\n",argv[3]);
+    printf("[+] Using dynamic (transparent proxy) forwarding with fixed addr %s.\n",rhost);
   else
     printf("[+] Using dynamic (transparent proxy) forwarding.\n");
 
-  bind_and_listen(fixedhost.ss_family, tcp, argv[2]);
+  bind_and_listen(fixedhost.ss_family, tcp, lport);
 
-  printf("[+] Listening on port %s/%s.\n", argv[2], argv[1]);
+  printf("[+] Listening on port %s/%s.\n", lport, (tcp)?"tcp":"udp");
 
   signal(SIGPIPE, SIG_IGN);
   struct sigaction sa;
