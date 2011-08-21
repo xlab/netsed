@@ -70,6 +70,11 @@ class TC_RuleTest < Test::Unit::TestCase
     TCP_RuleCheck('test andrew is there' ,'test mike is here', 's/andrew/mike', 's/there/here')
   end
 
+  # Check traditionally delimited rules
+  def test_traddelim_rule
+    TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", 's/a/b/')
+  end
+
 end
 
 # vim:sw=2:sta:et:
