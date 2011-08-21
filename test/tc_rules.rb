@@ -38,11 +38,11 @@ class TC_RuleTest < Test::Unit::TestCase
   # General rule checker method used by actual tests
   # - _datasent_ are send by a server, 
   # - _dataexpect_ are the corresponding expected data on the client side,
-  # - _*rules_ is a set of rules passed to netsed.
-  def TCP_RuleCheck(datasent, dataexpect, *rules)
+  # - _rules_ is a set of rules passed to netsed.
+  def TCP_RuleCheck(datasent, dataexpect, rules)
     serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
 
-    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, *rules)
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, rules)
 
     datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)
 
@@ -54,7 +54,7 @@ class TC_RuleTest < Test::Unit::TestCase
 
   # Check a basic rule.
   def test_basic_rule
-    TCP_RuleCheck('test andrew is there' ,"test mike\0\0 is there", 's/andrew/mike%00%00')
+    TCP_RuleCheck('test andrew is there' ,"test mike\0\0 is there", ['s/andrew/mike%00%00'])
   end
 
   # Check single char replacement.
@@ -62,17 +62,17 @@ class TC_RuleTest < Test::Unit::TestCase
   # Note: This one fail without commit 387a9d46387e2488efac08931b0aab57c7594aa2,
   # it returns "b b ba bab baba" !!
   def test_smallpattern_rule
-    TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", 's/a/b')
+    TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", ['s/a/b'])
   end
 
   # Check with 2 rules.
   def test_chain_2_rule
-    TCP_RuleCheck('test andrew is there' ,'test mike is here', 's/andrew/mike', 's/there/here')
+    TCP_RuleCheck('test andrew is there' ,'test mike is here', ['s/andrew/mike', 's/there/here'])
   end
 
   # Check traditionally delimited rules
   def test_traddelim_rule
-    TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", 's/a/b/')
+    TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", ['s/a/b/'])
   end
 
 end

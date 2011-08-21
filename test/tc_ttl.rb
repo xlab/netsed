@@ -21,7 +21,7 @@ class TC_TTLTest < Test::Unit::TestCase
     dataexpect = 'test mike and andrew'
     serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
 
-    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, 's/andrew/mike/1')
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, ['s/andrew/mike/1'])
 
     datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)
 
@@ -37,7 +37,7 @@ class TC_TTLTest < Test::Unit::TestCase
     dataexpect = '/ // /// //// ///// /////% %%%%%%%'
     serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
 
-    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, 's/%%/%2f/20')
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, ['s/%%/%2f/20'])
 
     datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)
 
@@ -52,7 +52,7 @@ class TC_TTLTest < Test::Unit::TestCase
     datasent   = 'test andrew and andrew'
     dataexpect = 'test mike and andrew'
 
-    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, 's/andrew/mike/1')
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, ['s/andrew/mike/1'])
 
     serv = TCPServeSingleDataSender.new(SERVER, RPORT, datasent)
     datarecv = TCPSingleDataRecv(SERVER, LPORT, 100)

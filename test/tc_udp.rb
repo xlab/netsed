@@ -40,7 +40,7 @@ class TC_UDPTest < Test::Unit::TestCase
   # Launch netsed
   def setup
     #puts self.class::SERVER
-    @netsed = NetsedRun.new('udp', LPORT, self.class::SERVER, RPORT, 's/andrew/mike')
+    @netsed = NetsedRun.new('udp', LPORT, self.class::SERVER, RPORT, ['s/andrew/mike'])
   end
 
   # Kill netsed

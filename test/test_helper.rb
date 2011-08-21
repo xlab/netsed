@@ -39,7 +39,7 @@ class NetsedRun
   attr_reader :data
 
   # Launch netsed with given parameters.
-  def initialize(proto, lport, rhost, rport, *rules)
+  def initialize(proto, lport, rhost, rport, rules)
     @cmd="../netsed #{proto} #{lport} #{rhost} #{rport} #{rules.join(' ')}"
     @pipe=IO.popen(@cmd)
     @data=''

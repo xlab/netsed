@@ -52,7 +52,7 @@ class TC_SystemTest < Test::Unit::TestCase
       mutex.synchronize do
       end
     }
-    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, 's/andrew/mike/1')
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, ['s/andrew/mike/1'])
 
     cpuload = 0
     # ensure both server and client have open socket to netsed 
