@@ -35,12 +35,12 @@ require 'test_helper'
 # Note: it runs netsed in the setup to allow to rerun all tests in a single
 # netsed invocation by test_group_all
 class TC_TCPTest < Test::Unit::TestCase
-  SERVER=LH_IPv4
+  CONFIG={:SERVER=>LH_IPv4,:OPTIONS=>'-4'}
   
   # Launch netsed
   def setup
-    #puts self.class::SERVER
-    @netsed = NetsedRun.new('tcp', LPORT, self.class::SERVER, RPORT, ['s/andrew/mike'])
+    #puts self.class::CONFIG[:SERVER]
+    @netsed = NetsedRun.new('tcp', LPORT, self.class::CONFIG[:SERVER], RPORT, ['s/andrew/mike'], self.class::CONFIG[:OPTIONS])
   end
 
   # Kill netsed
@@ -52,15 +52,15 @@ class TC_TCPTest < Test::Unit::TestCase
   def test_case_01_ServerDisconnect
     datasent   = 'test andrew and andrew'
     dataexpect = 'test mike and mike'
-    serv = TCPServeSingleDataSender.new(self.class::SERVER, RPORT, datasent)
-    datarecv = TCPSingleDataRecv(self.class::SERVER, LPORT, 100)
+    serv = TCPServeSingleDataSender.new(self.class::CONFIG[:SERVER], RPORT, datasent)
+    datarecv = TCPSingleDataRecv(self.class::CONFIG[:SERVER], LPORT, 100)
     serv.join
     assert_equal(dataexpect, datarecv)
   end
 
   # Check when there is no server
   def test_case_02_NoServer
-    datarecv = TCPSingleDataRecv(self.class::SERVER, LPORT, 100)
+    datarecv = TCPSingleDataRecv(self.class::CONFIG[:SERVER], LPORT, 100)
     assert_equal('', datarecv)
   end
 
@@ -69,8 +69,8 @@ class TC_TCPTest < Test::Unit::TestCase
     datasent   = 'test andrew and andrew'
     dataexpect = 'test mike and mike'
 
-    serv = TCPServeSingleDataReciever.new(self.class::SERVER, RPORT, 100)
-    TCPSingleDataSend(self.class::SERVER, LPORT, datasent)
+    serv = TCPServeSingleDataReciever.new(self.class::CONFIG[:SERVER], RPORT, 100)
+    TCPSingleDataSend(self.class::CONFIG[:SERVER], LPORT, datasent)
     datarecv=serv.join
     assert_equal(dataexpect, datarecv)
   end
@@ -80,11 +80,11 @@ class TC_TCPTest < Test::Unit::TestCase
     datasent = ['client: bla bla andrew', 'server: ok andrew ok']
     dataexpect = ['client: bla bla mike', 'server: ok mike ok']
     datarecv = []
-    serv = TCPServeSingleConnection.new(self.class::SERVER, RPORT) { |s|
+    serv = TCPServeSingleConnection.new(self.class::CONFIG[:SERVER], RPORT) { |s|
       datarecv[0] = s.recv( 100 )
       s.write(datasent[1])
     }
-    streamSock = TCPSocket.new(self.class::SERVER, LPORT)  
+    streamSock = TCPSocket.new(self.class::CONFIG[:SERVER], LPORT)  
     streamSock.write( datasent[0] )  
     datarecv[1] = streamSock.recv( 100 )
     streamSock.close
@@ -99,7 +99,7 @@ class TC_TCPTest < Test::Unit::TestCase
     dataexpect = ['0: bla bla mike', '1: ok mike ok']
     # open server
     datarecv=[]
-    serv = TCPServeMultipleConnection.new(self.class::SERVER, RPORT, 2) { |s, j|
+    serv = TCPServeMultipleConnection.new(self.class::CONFIG[:SERVER], RPORT, 2) { |s, j|
       #puts "Thread #{j} accepted connection"
       datarecv[j] = s.recv( 100 )
     }
@@ -108,7 +108,7 @@ class TC_TCPTest < Test::Unit::TestCase
     cs=[]
     for i in 0..1 do
       #puts "client #{i}"
-      cs[i] = TCPSocket.new(self.class::SERVER, LPORT)
+      cs[i] = TCPSocket.new(self.class::CONFIG[:SERVER], LPORT)
       sleep 0.001 # sleep to ensure connection order on server thread
     end
     # write to each connections
@@ -127,8 +127,8 @@ class TC_TCPTest < Test::Unit::TestCase
   def test_case_zz_LastCheck
     datasent   = 'test andrew and andrew'
     dataexpect = 'test mike and mike'
-    serv = TCPServeSingleDataSender.new(self.class::SERVER, RPORT, datasent)
-    datarecv = TCPSingleDataRecv(self.class::SERVER, LPORT, 100)
+    serv = TCPServeSingleDataSender.new(self.class::CONFIG[:SERVER], RPORT, datasent)
+    datarecv = TCPSingleDataRecv(self.class::CONFIG[:SERVER], LPORT, 100)
     serv.join
     assert_equal(dataexpect, datarecv)
   end
@@ -155,6 +155,5 @@ end
 # to rerun all TCP tests with IPv6 localhost,
 # inspired by http://www.ruby-forum.com/topic/204730.
 TC_TCPTest6=Class.new(TC_TCPTest)
-TC_TCPTest6.const_set(:SERVER, LH_IPv6)
-
+TC_TCPTest6.const_set(:CONFIG, {:SERVER=>LH_IPv6,:OPTIONS=>'-6'})
 # vim:sw=2:sta:et:

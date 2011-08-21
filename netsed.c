@@ -198,6 +198,9 @@ int lsock;
 
 // Command line parameters are parsed to the following global variables.
 
+/// Address family used for parameter resolution
+int family = AF_UNSPEC;
+
 /// TCP or UDP.
 int tcp;
 
@@ -227,7 +230,9 @@ volatile int stop=0;
 /// @param why the error message.
 void usage_hints(const char* why) {
   ERR("Error: %s\n\n",why);
-  ERR("Usage: netsed proto lport rhost rport rule1 [ rule2 ... ]\n\n");
+  ERR("Usage: netsed [option] proto lport rhost rport rule1 [ rule2 ... ]\n\n");
+  ERR("  options - can be nothing, -4 to force address resolution in IPv4\n");
+  ERR("            or -6 to force address resolution in IPv6.\n");
   ERR("  proto   - protocol specification (tcp or udp)\n");
   ERR("  lport   - local port to listen on (see README for transparent\n");
   ERR("            traffic intercepting on some systems)\n");
@@ -415,24 +420,39 @@ void shrink_to_binary(struct rule_s* r) {
 void parse_params(int argc,char* argv[]) {
   int i;
 
-  if (argc<6) usage_hints("not enough parameters");
+  // parse options
+  while ((i = getopt(argc, argv, "46")) != -1) {
+    switch(i) {
+    case '4':
+      family = AF_INET;
+      break;
+    case '6':
+      family = AF_INET6;
+      break;
+    default:
+      error("unsupported optional parameter");
+    }
+  }
+
+  // parse remaining positional parameters
+  if (argc<optind+5) usage_hints("not enough parameters");
 
   // protocole
-  if (strcasecmp(argv[1],"tcp")*strcasecmp(argv[1],"udp")) usage_hints("incorrect protocol");
-  tcp = strncasecmp(argv[1], "udp", 3);
+  if (strcasecmp(argv[optind],"tcp")*strcasecmp(argv[optind],"udp")) usage_hints("incorrect protocol");
+  tcp = strncasecmp(argv[optind++], "udp", 3);
 
   // local port
-  lport = argv[2];
+  lport = argv[optind++];
 
   // remote host & port
-  rhost = argv[3];
-  rport = argv[4];
+  rhost = argv[optind++];
+  rport = argv[optind++];
 
   // allocate rule arrays, rule number is number of params after 5
-  rule=malloc((argc-5)*sizeof(struct rule_s));
-  rule_live=malloc((argc-5)*sizeof(int));
+  rule=malloc((argc-optind)*sizeof(struct rule_s));
+  rule_live=malloc((argc-optind)*sizeof(int));
   // parse rules
-  for (i=5;i<argc;i++) {
+  for (i=optind;i<argc;i++) {
     char *fs=0, *ts=0, *cs=0;
     printf("[*] Parsing rule %s...\n",argv[i]);
     fs=strchr(argv[i],'/');
@@ -639,7 +659,7 @@ int main(int argc,char* argv[]) {
   parse_params(argc, argv);
 
   memset(&hints, '\0', sizeof(hints));
-  hints.ai_family = AF_UNSPEC;
+  hints.ai_family = family;
   hints.ai_flags = AI_CANONNAME;
   hints.ai_socktype = tcp ? SOCK_STREAM : SOCK_DGRAM;
 
