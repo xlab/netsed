@@ -1,6 +1,9 @@
 CFLAGS += -Wall -fomit-frame-pointer
 PREFIX ?= /usr/local
 
+ifeq "$(shell uname -s)" "SunOS"
+	LDFLAGS += -lsocket
+endif
 
 VERSION := $(shell grep '\#define VERSION' netsed.c|sed 's/\#define VERSION "\(.*\)"/\1/')
 
