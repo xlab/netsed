@@ -233,18 +233,30 @@ struct tracker_s * connections = NULL;
 /// True when SIGINT signal was received.
 volatile int stop=0;
 
+/// Display an error message followed by short usage information.
+/// @param why the error message.
+void short_usage_hints(const char* why) {
+  if (why) ERR("Error: %s\n\n",why);
+  ERR("Usage: netsed [option] proto lport rhost rport rule1 [ rule2 ... ]\n\n");
+  ERR("  use netsed -h for more information on usage.\n");
+  exit(1);
+}
+
+
 /// Display an error message followed by usage information.
 /// @param why the error message.
 void usage_hints(const char* why) {
-  ERR("Error: %s\n\n",why);
+  if (why) ERR("Error: %s\n\n",why);
   ERR("Usage: netsed [option] proto lport rhost rport rule1 [ rule2 ... ]\n\n");
 #ifdef PARSE_LONG_OPT
   ERR("  options - can be --ipv4 or -4 to force address resolution in IPv4,\n");
   ERR("            --ipv6 or -6 to force address resolution in IPv6,\n");
   ERR("            --ipany to resolve the address in either IPv4 or IPv6.\n");
+  ERR("          - --help or -h to display this usage informations.\n");
 #else
   ERR("  options - can be nothing, -4 to force address resolution in IPv4\n");
   ERR("            or -6 to force address resolution in IPv6.\n");
+  ERR("          - -h to display this usage informations.\n");
 #endif
   ERR("  proto   - protocol specification (tcp or udp)\n");
   ERR("  lport   - local port to listen on (see README for transparent\n");
@@ -438,13 +450,14 @@ void parse_params(int argc,char* argv[]) {
   static struct option long_options[] = {
     {"ipv4", 0, 0, '4'},
     {"ipv6", 0, 0, '6'},
+    {"help", 0, 0, 'h'},
     {"ipany", 0, &family, AF_UNSPEC},
     {0, 0, 0, 0}
   };
 
-  while ((i = getopt_long(argc, argv, "46", long_options, NULL)) != -1)
+  while ((i = getopt_long(argc, argv, "46h", long_options, NULL)) != -1)
 #else
-  while ((i = getopt(argc, argv, "46")) != -1)
+  while ((i = getopt(argc, argv, "46h")) != -1)
 #endif
   {
     switch(i) {
@@ -456,16 +469,18 @@ void parse_params(int argc,char* argv[]) {
     case '6':
       family = AF_INET6;
       break;
+    case 'h':
+      usage_hints(NULL);
     default:
-      error("unsupported optional parameter");
+      usage_hints("unsupported optional parameter");
     }
   }
 
   // parse remaining positional parameters
-  if (argc<optind+5) usage_hints("not enough parameters");
+  if (argc<optind+5) short_usage_hints("not enough parameters");
 
   // protocole
-  if (strcasecmp(argv[optind],"tcp")*strcasecmp(argv[optind],"udp")) usage_hints("incorrect protocol");
+  if (strcasecmp(argv[optind],"tcp")*strcasecmp(argv[optind],"udp")) short_usage_hints("incorrect protocol");
   tcp = strncasecmp(argv[optind++], "udp", 3);
 
   // local port
