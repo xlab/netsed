@@ -5,7 +5,7 @@
 # this file implements checks for the TTL (time-to-live) feature of netsed rules in the class TC_TTLTest.
 
 require 'test/unit'
-require 'test_helper'
+require './test_helper'
 
 # Test Case for netsed TTL (time-to-live) feature
 class TC_TTLTest < Test::Unit::TestCase

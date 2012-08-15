@@ -25,7 +25,7 @@
 # this file implements checks for netsed rules in class TC_RuleTest
 
 require 'test/unit'
-require 'test_helper'
+require './test_helper'
 
 # Test Case for netsed rules
 class TC_RuleTest < Test::Unit::TestCase

@@ -28,7 +28,7 @@
 #
 
 require 'test/unit'
-require 'test_helper'
+require './test_helper'
 
 # Test Case for TCP
 #

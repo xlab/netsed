@@ -33,11 +33,11 @@
 require 'test/unit'
 
 Dir.chdir(File.dirname(__FILE__))
-require 'test_helper'
+require './test_helper'
 
 Dir .glob('tc_*.rb') { |f|
   #puts "adding #{f}"
-  require f
+  require "./" + f
 }
 
 # vim:sw=2:sta:et:

@@ -1,4 +1,5 @@
 #!/usr/bin/ruby
+# -*- coding: utf-8 -*-
 # netsed Unit::Tests
 # (c) 2010 Julien Viard de Galbert <julien@silicone.homelinux.org>
 #
@@ -28,7 +29,7 @@
 #
 
 require 'test/unit'
-require 'test_helper'
+require './test_helper'
 
 # Test Case for UDP
 #

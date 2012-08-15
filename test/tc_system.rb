@@ -25,7 +25,7 @@
 # this file implements checks for netsed system behaviour in class TC_SystemTest
 
 require 'test/unit'
-require 'test_helper'
+require './test_helper'
 require 'thread'
 
 # Test Case for netsed system behaviour
