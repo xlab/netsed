@@ -1,3 +1,17 @@
+2012-08-15; netsed 1.1:
+  - several fix from Mats Erik Anersson:
+    - Let Makefile use externally exported CFLAGS.
+    - Make the macro LINUX_NETFILTER be conditionally active.
+    - Allow traditionally delimited rules.
+    - Regulate dual-stacking of listener.
+    - Linking flag needed for OpenSolaris.
+    - Fix for option IPV6_V6ONLY.
+  - License clarification.
+  - Implemented options to force IP version 4 or 6.
+  - Added long options --ipv4, --ipv6 and --ipany.
+  - Changed help display.
+  - Adjust to changes in the Ruby 1.9 require syntax. By Sven Hoexter
+
 2010-09-02; netsed 1.00b:
   - Transparent proxy mode for netfilter (linux 2.4 and 2.6)
 
