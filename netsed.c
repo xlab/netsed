@@ -252,11 +252,11 @@ void usage_hints(const char* why) {
   ERR("  options - can be --ipv4 or -4 to force address resolution in IPv4,\n");
   ERR("            --ipv6 or -6 to force address resolution in IPv6,\n");
   ERR("            --ipany to resolve the address in either IPv4 or IPv6.\n");
-  ERR("          - --help or -h to display this usage informations.\n");
+  ERR("          - --help or -h to display this usage information.\n");
 #else
   ERR("  options - can be nothing, -4 to force address resolution in IPv4\n");
   ERR("            or -6 to force address resolution in IPv6.\n");
-  ERR("          - -h to display this usage informations.\n");
+  ERR("          - -h to display this usage information.\n");
 #endif
   ERR("  proto   - protocol specification (tcp or udp)\n");
   ERR("  lport   - local port to listen on (see README for transparent\n");
