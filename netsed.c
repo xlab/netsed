@@ -55,16 +55,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /// All sockets are added to the select() call and managed by the dispatcher
 /// as follows:
 /// - When packets are received from the client, the rules are applied by
-///   sed_the_buffer() and the packet is send to the server.
+///   sed_the_buffer() and the packet is sent to the server. Direction is OUT.
 ///   This is the role of client2server_sed() function. It is only used for tcp.
 /// - When packets are received from the server, the rules are applied by
-///   sed_the_buffer() and the packet is send to the corresponding client.
-///   This is the role of server2client_sed() function.
+///   sed_the_buffer() and the packet is sent to the corresponding client.
+///   Direction is IN. This is the role of server2client_sed() function.
 /// - For udp only, connection from client to netsed are not established
 ///   so netsed need to lookup existing #connections to find the corresponding
 ///   established link, if any. The lookup is done by comparing tracker_s::csa.
 ///   Once the connection is found or created, the rules are applied
-///   by sed_the_buffer() and the packet is send to the server.
+///   by sed_the_buffer() and the packet is sent to the server.
 ///   This is the role of b2server_sed() function.
 /// .
 /// @note For tcp tracker_s::csa is NULL and for udp the tracker_s::csock is
@@ -160,6 +160,15 @@ struct rule_s {
   int fs;
   /// length of #to buffer.
   int ts;
+  /// direction of rule
+  int dir;
+};
+
+/// Direction specifier of replacement rule.
+enum {
+  ALL = 0,
+  IN = 1,
+  OUT = 2,
 };
 
 /// Connection state
@@ -267,16 +276,22 @@ void usage_hints(const char* why) {
   ERR("  ruleN   - replacement rules (see below)\n\n");
   ERR("General syntax of replacement rules: s/pat1/pat2[/expire]\n\n");
   ERR("This will replace all occurrences of pat1 with pat2 in any matching packet.\n");
-  ERR("An additional parameter (count) can be used to expire a rule after 'count'\n");
-  ERR("successful substitutions for a given connection. Eight-bit characters,\n");
-  ERR("including NULL and '/', can be passed using HTTP-like hex escape\n");
-  ERR("sequences (e.g. CRLF as %%0a%%0d).\n");
-  ERR("A match on '%%' can be achieved by specifying '%%%%'. Examples:\n\n");
+  ERR("An additional parameter, 'expire' of the form [CHAR][NUM], can be used to\n");
+  ERR("expire a rule after NUM successful substitutions during a given connection.\n");
+  ERR("The character CHAR is one of \"iIoO\", with the effect of restricting the rule\n");
+  ERR("to apply to incoming (\"iI\") or to outgoing (\"oO\") packets only, as seen from\n");
+  ERR("the client's perspective. Both of CHAR and NUM are optional.\n\n");
+  ERR("Eight-bit characters, including NULL and '/', can be applied using HTTP-like\n");
+  ERR("hex escape sequences (e.g. CRLF as %%0a%%0d).\n");
+  ERR("A match on '%%' can be achieved by specifying '%%%%'.\n\nExamples:\n");
   ERR("  's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)\n");
   ERR("  's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'\n");
   ERR("  's/andrew/mike%%00%%00' - replace 'andrew' with 'mike\\x00\\x00'\n");
   ERR("                          (manually padding to keep original size)\n");
-  ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurrence of '%%' with '/'\n\n");
+  ERR("  's/%%%%/%%2f/20'         - replace the 20 first occurrence of '%%' with '/'\n");
+  ERR("  's/andrew/mike/o'     - the server will always see 'mike', never 'andrew'\n\n");
+  ERR("  's/Rilke/Proust/o s/Proust/Rilke/i'\n");
+  ERR("                        - let Rilke travel incognito as Proust\n\n");
   ERR("Rules are not active across packet boundaries, and they are evaluated\n");
   ERR("from first to last, not yet expired rule, as stated on the command line.\n");
   exit(1);
@@ -508,6 +523,12 @@ void parse_params(int argc,char* argv[]) {
     if (cs) { *cs=0; cs++; }
     rule[rules].forig=fs;
     rule[rules].torig=ts;
+    rule[rules].dir = ALL;
+    /* Is there a direction selector?  */
+    if (cs && *cs && strchr("iIoO", *cs)) {
+        rule[rules].dir = (*cs=='i'||*cs=='I') ? IN : OUT;
+        cs++;
+      }
     if (cs && *cs) /* Only non-trivial quantifiers count. */
       rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
     shrink_to_binary(&rule[rules]);
@@ -580,7 +601,8 @@ char b2[MAX_BUF];
 /// Applies the rules to global buffer buf.
 /// @param siz useful size of the data in buf.
 /// @param live TTL state of current connection.
-int sed_the_buffer(int siz, int* live) {
+/// @param packet direction
+int sed_the_buffer(int siz, int* live, int dir) {
   int i=0,j=0;
   int newsize=0;
   int changes=0;
@@ -588,6 +610,8 @@ int sed_the_buffer(int siz, int* live) {
   for (i=0;i<siz;) {
     gotchange=0;
     for (j=0;j<rules;j++) {
+      if (rule[j].dir != ALL && rule[j].dir !=dir) continue;
+
       if ((!memcmp(&buf[i],rule[j].from,rule[j].fs)) && (live[j]!=0)) {
         changes++;
         gotchange=1;
@@ -635,7 +659,7 @@ void server2client_sed(struct tracker_s * conn) {
     }
     if (rd>0) {
       printf("[+] Caught server -> client packet.\n");
-      rd=sed_the_buffer(rd, conn->live);
+      rd=sed_the_buffer(rd, conn->live, IN);
       conn->time = now;
       conn->state = ESTABLISHED;
       if (sendto(conn->csock,b2,rd,0,conn->csa, conn->csl)<=0) {
@@ -669,7 +693,7 @@ void client2server_sed(struct tracker_s * conn) {
 void b2server_sed(struct tracker_s * conn, ssize_t rd) {
     if (rd>0) {
       printf("[+] Caught client -> server packet.\n");
-      rd=sed_the_buffer(rd, conn->live);
+      rd=sed_the_buffer(rd, conn->live, OUT);
       conn->time = now;
       if (write(conn->fsock,b2,rd)<=0) {
         DBG("[!] server disconnected. (wr)\n");
