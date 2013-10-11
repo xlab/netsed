@@ -75,6 +75,46 @@ class TC_RuleTest < Test::Unit::TestCase
     TCP_RuleCheck('a a aa aaa aaaa' ,"b b bb bbb bbbb", ['s/a/b/'])
   end
 
+  # General rule checker method in chat mode
+  # - _datasent_ is an array of data to sent 0:client 1:server, 
+  # - _dataexpect_ are the corresponding expected data on the other side,
+  # - _rules_ is a set of rules passed to netsed.
+  def TCP_RuleChatCheck(datasent, dataexpect, rules)
+    netsed = NetsedRun.new('tcp', LPORT, SERVER, RPORT, rules)
+    datarecv = []
+    serv = TCPServeSingleConnection.new(SERVER, RPORT) { |s|
+      datarecv[0] = s.recv( 100 )
+      s.write(datasent[1])
+    }
+    streamSock = TCPSocket.new(SERVER, LPORT)  
+    streamSock.write( datasent[0] )  
+    datarecv[1] = streamSock.recv( 100 )
+    streamSock.close
+    serv.join
+
+    netsed.kill
+
+    assert_equal_objects(dataexpect, datarecv)
+  end
+
+  # Check direction rules
+  # tests based on tcp chat: test_case_04_Chat
+  def test_direction_rule
+    TCP_RuleChatCheck(
+      ['client: bla bla Rilke Proust', 'server: ok Proust ok Rilke'],
+      ['client: bla bla Proust Proust', 'server: ok Rilke ok Rilke'],
+      ['s/Rilke/Proust/o', 's/Proust/Rilke/i'])
+  end
+
+  # Check direction+ttl rules
+  # tests based on tcp chat: test_case_04_Chat
+  def test_direction_ttl_rule
+    TCP_RuleChatCheck(
+      ['client: bla bla Rilke Rilke', 'server: ok Proust ok Proust'],
+      ['client: bla bla Proust Rilke', 'server: ok Rilke ok Proust'],
+      ['s/Rilke/Proust/o1', 's/Proust/Rilke/i1'])
+  end
+
 end
 
 # vim:sw=2:sta:et:
