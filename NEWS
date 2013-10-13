@@ -1,3 +1,7 @@
+2013-10-11; netsed 1.2:
+  - new feature from Mats Erik Anersson:
+    - Direction dependant rules.
+
 2012-08-15; netsed 1.1:
   - several fix from Mats Erik Anersson:
     - Let Makefile use externally exported CFLAGS.
