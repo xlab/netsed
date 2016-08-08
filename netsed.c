@@ -391,6 +391,8 @@ char hex[]="0123456789ABCDEF";
 void shrink_to_binary(struct rule_s* r) {
   int i;
 
+  r->ts = 0;
+  r->fs = 0;
   r->from=malloc(strlen(r->forig));
   r->to=malloc(strlen(r->torig));
   if ((!r->from) || (!r->to)) error("shrink_to_binary: unable to malloc() buffers");
