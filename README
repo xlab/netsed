@@ -128,10 +128,12 @@ An additional parameter (count) can be used to expire rule after 'count'
 successful substitutions for a given connection. Eight-bit characters, 
 including NULL and '/', can be passed using HTTP-alike hex escape 
 sequences (eg. %0a%0d). Single '%' can be reached by using '%%'.
+Wildcards are supported by specifying %* and will match any value. Up to 10 wildcards can be used.
 Examples:
 
   's/andrew/mike/1'     - replace 'andrew' with 'mike' (only first time)
   's/andrew/mike'       - replace all occurrences of 'andrew' with 'mike'
+  's/start%*end/new'    - replace anything between (and including) 'start' and 'end' with 'new'
   's/andrew/mike%00%00' - replace 'andrew' with 'mike\x00\x00'
                           (manually padding to keep original size)
   's/%%/%2f/20'         - replace the 20 first occurence of '%' with '/'
