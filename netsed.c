@@ -129,12 +129,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define VERSION "1.2"
 /// max size for buffers
 #define MAX_BUF  100000
+/// max number of wildcards per buffer
+#define MAX_WILDCARDS  10
 
 /// printf to stderr
 #define ERR(x...) fprintf(stderr,x)
 
 // Uncomment to add a lot of debug information.
-//#define DEBUG
+// #define DEBUG
 #ifdef DEBUG
 /// printf for debug information
 #define DBG(x...) printf(x)
@@ -156,8 +158,10 @@ struct rule_s {
   const char *forig;
   /// replacement from the command line.
   const char *torig;
-  /// length of #from buffer.
-  int fs;
+  /// length of #from buffer parts.
+  int fs[MAX_WILDCARDS];
+  /// number of #from buffers
+  int fps;
   /// length of #to buffer.
   int ts;
   /// direction of rule
@@ -392,19 +396,29 @@ void shrink_to_binary(struct rule_s* r) {
   int i;
 
   r->ts = 0;
-  r->fs = 0;
+  r->fs[0]=0;
+  r->fps = 0;
   r->from=malloc(strlen(r->forig));
   r->to=malloc(strlen(r->torig));
   if ((!r->from) || (!r->to)) error("shrink_to_binary: unable to malloc() buffers");
 
-  for (i=0;i<strlen(r->forig);i++) {
+  int fs = 0;
+  for (i=0; i<strlen(r->forig); i++) {
     if (r->forig[i]=='%') {
       // Have to shrink.
       i++;
       if (r->forig[i]=='%') {
         // '%%' -> '%'
-        r->from[r->fs]='%';
-        r->fs++;
+        r->from[fs] = '%';
+        r->fs[r->fps]++;
+        fs++;
+      } else if (r->forig[i]=='*') {
+        // '%*' -> wildcard for any number of bytes
+        if (r->fps == MAX_WILDCARDS - 1) error("Too many wildcards in the 'from' pattern");
+        // r->fs[r->fps] is now at the length of the current pattern and we start writing the next
+        DBG("    Part %d has length %d\n", r->fps, r->fs[r->fps]);
+        r->fps++;
+        r->fs[r->fps] = 0;
       } else {
         int hexval;
         char* x;
@@ -416,17 +430,23 @@ void shrink_to_binary(struct rule_s* r) {
         x=strchr(hex,toupper(r->forig[i+1]));
         if (!x) error("shrink_to_binary: src pattern: non-hex sequence.");
         hexval+=(x-hex);
-        r->from[r->fs]=hexval;
-        r->fs++; i++;
+        r->from[fs] = hexval;
+        r->fs[r->fps]++;
+        fs++;
+        i++;
       }
     } else {
       // Plaintext case.
-      r->from[r->fs]=r->forig[i];
-      r->fs++;
+      r->from[fs] = r->forig[i];
+      r->fs[r->fps]++;
+      fs++;
     }
   }
+  DBG("    Part %d has length %d\n", r->fps, r->fs[r->fps]);
+  // need to count the last part as well
+  r->fps++;
 
-  for (i=0;i<strlen(r->torig);i++) {
+  for (i=0; i<strlen(r->torig); i++) {
     if (r->torig[i]=='%') {
       // Have to shrink.
       i++;
@@ -434,6 +454,9 @@ void shrink_to_binary(struct rule_s* r) {
         // '%%' -> '%'
         r->to[r->ts]='%';
         r->ts++;
+      } else if (r->torig[i]=='*') {
+        // '%*' -> wildcard for any number of bytes
+        error("Wildcards are not allowed for the 'to' pattern");
       } else {
         int hexval;
         char* x;
@@ -445,12 +468,13 @@ void shrink_to_binary(struct rule_s* r) {
         x=strchr(hex,toupper(r->torig[i+1]));
         if (!x) error("shrink_to_binary: dst pattern: non-hex sequence.");
         hexval+=(x-hex);
-        r->to[r->ts]=hexval;
-        r->ts++; i++;
+        r->to[r->ts] = hexval;
+        r->ts++;
+        i++;
       }
     } else {
       // Plaintext case.
-      r->to[r->ts]=r->torig[i];
+      r->to[r->ts] = r->torig[i];
       r->ts++;
     }
   }
@@ -534,7 +558,8 @@ void parse_params(int argc,char* argv[]) {
     if (cs && *cs) /* Only non-trivial quantifiers count. */
       rule_live[rules]=atoi(cs); else rule_live[rules]=-1;
     shrink_to_binary(&rule[rules]);
-//    printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
+    DBG("[*] Direction %d, %d wildcard%s\n", rule[rules].dir, rule[rules].fps, (rule[rules].fps > 1) ? "s" : "");
+    // printf("DEBUG: (%s) (%s)\n",rule[rules].from,rule[rules].to);
     rules++;
   }
 
@@ -605,25 +630,48 @@ char b2[MAX_BUF];
 /// @param live TTL state of current connection.
 /// @param packet direction
 int sed_the_buffer(int siz, int* live, int dir) {
-  int i=0,j=0;
+  int i=0, j=0, k=0, idx=0, fs=0;
   int newsize=0;
   int changes=0;
   int gotchange=0;
-  for (i=0;i<siz;) {
+  for (i=0; i<siz;) {
     gotchange=0;
-    for (j=0;j<rules;j++) {
-      if (rule[j].dir != ALL && rule[j].dir !=dir) continue;
+    for (j=0; j<rules; j++) {
+      struct rule_s *crule = &rule[j];
+      if ((crule->dir != ALL && crule->dir != dir) || live[j]==0) continue;
 
-      if ((!memcmp(&buf[i],rule[j].from,rule[j].fs)) && (live[j]!=0)) {
-        changes++;
-        gotchange=1;
-        printf("    Applying rule s/%s/%s...\n",rule[j].forig,rule[j].torig);
-        live[j]--;
-        if (live[j]==0) printf("    (rule just expired)\n");
-        memcpy(&b2[newsize],rule[j].to,rule[j].ts);
-        newsize+=rule[j].ts;
-        i+=rule[j].fs;
-        break;
+      k = 0;
+      fs = 0;
+      idx = i;
+      while (k < crule->fps && idx < siz) {
+        if (!memcmp(&buf[idx], &crule->from[fs], crule->fs[k])) {
+          // if it was the last part then all matched and we are done
+          if (k == (crule->fps - 1)) {
+            changes++;
+            gotchange=1;
+            printf("    Applying rule s/%s/%s...\n", crule->forig, crule->torig);
+            live[j]--;
+            if (live[j] == 0) printf("    (rule just expired)\n");
+            memcpy(&b2[newsize], crule->to, crule->ts);
+            newsize += crule->ts;
+            i = idx + crule->fs[k];
+            break;
+          } else {
+            DBG("    Found pattern %d at %d\n", k, idx);
+            // move on to the next part
+            fs += crule->fs[k];
+            idx += crule->fs[k];
+            k++;
+          }
+        } else if (k == 0) {
+          DBG("    No match %d of %d at %d\n", k, crule->fps, idx);
+          // we MUST find the first pattern
+          break;
+        } else {
+          DBG("    No match, check next %d %d\n", k, idx);
+          // no match, increase pointer
+          idx++;
+        }
       }
     }
     if (!gotchange) {
@@ -632,6 +680,7 @@ int sed_the_buffer(int siz, int* live, int dir) {
       i++;
     }
   }
+
   if (!changes) printf("[*] Forwarding untouched packet of size %d.\n",siz);
   else printf("[*] Done %d replacements, forwarding packet of size %d (orig %d).\n",
               changes,newsize,siz);
